@@ -116,6 +116,25 @@ def draw_button(rect: pygame.Rect, fill, border, hover=False, radius=10):
         pygame.draw.rect(glow, (*border, 70), (0, 0, rect.width + 10, rect.height + 10), border_radius=radius + 4)
         screen.blit(glow, (rect.x - 5, rect.y - 5))
 
+
+def truncate_text(font: pygame.font.Font, text: str, max_width: int) -> str:
+    """Truncate with ellipsis to fit within max_width pixels."""
+    s = str(text)
+    if font.size(s)[0] <= max_width:
+        return s
+    ell = "…"
+    if font.size(ell)[0] > max_width:
+        return ""
+    lo, hi = 0, len(s)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        cand = s[:mid].rstrip() + ell
+        if font.size(cand)[0] <= max_width:
+            lo = mid + 1
+        else:
+            hi = mid
+    return s[: max(0, lo - 1)].rstrip() + ell
+
 # Add after other color definitions
 SKIN_COLORS = [(255, 218, 185), (210, 180, 140), (169, 132, 103), (139, 69, 19)]
 HAIR_COLORS = [(0, 0, 0), (139, 69, 19), (255, 215, 0), (211, 211, 211)]
@@ -294,6 +313,8 @@ SUPERMARKET_ITEMS = {
     "Rice": ShopItem("Rice", 5, 1, item_type="ingredient"),
     "Noodles": ShopItem("Noodles", 7, 2, item_type="ingredient"),
     "Veggies": ShopItem("Veggies", 6, 2, item_type="ingredient"),
+    "Beef": ShopItem("Beef", 14, 2, item_type="ingredient"),
+    "Seasoning": ShopItem("Seasoning", 3, 0, item_type="ingredient"),
     "Bottle of Water": ShopItem("Bottle of Water", 6, 2, item_type="drink"),
 }
 SUPERMARKET_ITEMS["Bottle of Water"].quick_drink = True
@@ -333,6 +354,10 @@ MICROWAVE_RECIPES_CHEF = [
 ]
 
 STOVE_FEE = 10
+MICROWAVE_COOK_FRAMES = 180  # 3s @ 60 FPS
+STOVE_COOK_FRAMES = 300  # 5s
+GRILL_FEE = 3
+GRILL_COOK_FRAMES = STOVE_COOK_FRAMES + 180  # 3s longer than stove
 STOVE_RECIPES = [
     {
         "name": "Chef's Feast",
@@ -343,6 +368,44 @@ STOVE_RECIPES = [
         "name": "Stove Noodle Tower",
         "ingredients": {"Noodles": 2, "Cheese": 1, "Egg": 2},
         "result": ShopItem("Stove Noodle Tower", 0, 90, item_type="food"),
+    },
+    {
+        "name": "Steak Plate",
+        "ingredients": {"Beef": 1, "Seasoning": 1},
+        "result": ShopItem("Steak Plate", 0, 80, item_type="food"),
+    },
+    {
+        "name": "Pepper Steak",
+        "ingredients": {"Beef": 1, "Seasoning": 2},
+        "result": ShopItem("Pepper Steak", 0, 95, item_type="food"),
+    },
+]
+# Grill: low fee, longer cook; menu mixes "miss" plates and premium cuts at once.
+GRILL_RECIPES = [
+    {
+        "name": "Charred Scraps",
+        "ingredients": {"Beef": 1},
+        "result": ShopItem("Charred Scraps", 0, 30, item_type="food"),
+    },
+    {
+        "name": "Dry Patty",
+        "ingredients": {"Beef": 1, "Rice": 1},
+        "result": ShopItem("Dry Patty", 0, 42, item_type="food"),
+    },
+    {
+        "name": "Smokehouse Burger",
+        "ingredients": {"Beef": 1, "Veggies": 1},
+        "result": ShopItem("Smokehouse Burger", 0, 62, item_type="food"),
+    },
+    {
+        "name": "Backyard Ribeye",
+        "ingredients": {"Beef": 1, "Seasoning": 1},
+        "result": ShopItem("Backyard Ribeye", 0, 92, item_type="food"),
+    },
+    {
+        "name": "Crown Tomahawk",
+        "ingredients": {"Beef": 2, "Seasoning": 1},
+        "result": ShopItem("Crown Tomahawk", 0, 115, item_type="food"),
     },
 ]
 clothing_items = {
@@ -382,6 +445,7 @@ clothing_shop_open = False  # Track if clothing shop menu is open
 arcade_shop_open = False  # Track if arcade shop menu is open
 mission_center_open = False  # Track if mission center menu is open
 supermarket_open = False  # Track if supermarket menu is open
+seafood_market_open = False  # Sell fish from Sun Reef
 hotel_lobby_open = False  # Track if hotel lobby menu is open
 cafe_open = False  # Track if cafe menu is open
 in_hotel_room = False  # In-room scene flag
@@ -393,7 +457,30 @@ room_player_x = 200
 ROOM_PLAYER_Y = 430
 ROOM_PLAYER_SPEED = 4
 stove_open = False
+grill_open = False
 hotel_room_owned = False
+
+# --- Sun Reef ferry & fishing island ---
+FERRY_FARE = 12
+FERRY_CROSSING_FRAMES = 140
+on_fishing_island = False
+ferry_anim_timer = 0
+ferry_anim_to_island = True
+island_player_x = 220.0
+ISLAND_FEET_Y = 458  # beach stand line (screen coords)
+island_ambient_frame = 0
+# Fishing minigame (only active on island)
+fish_phase = "idle"  # idle | cast | wait | hookset | reel | win | lose
+fish_cast_power = 0.0
+fish_wait_until_tick = 0
+fish_hook_deadline_tick = 0
+fish_reel_progress = 0.0
+fish_pos = 0.5
+fish_vel = 0.0
+fish_player_center = 0.5
+fish_struggle_phase = 0.0
+fish_pending_roll = None  # (name, price, hunger) or None
+fish_splash = []  # (x, y, vy, life) particles
 
 # Player house + Coffee Guy mission flag (set when drinking coffee during an active coffee buff)
 mission_coffee_guy_done = False
@@ -406,6 +493,7 @@ house_player_floor = 0
 house_cam_offset = 0.0
 house_buildings = []  # {"kind": str, "cx": float, "floor": int}
 house_build_menu_open = False
+house_build_scroll = 0
 house_place_pick = None  # kind str while placing from catalog
 house_notice_timer = 0
 house_notice_text = ""
@@ -453,14 +541,18 @@ RESTAURANT_GEOM_TOP_Y = 366
 BISTRO_UPGRADE_COST_ADV_AD = 450
 BISTRO_UPGRADE_COST_BETTER_QUALITY = 580
 BISTRO_UPGRADE_COST_DELICIOUS_SMELL = 400
-# Dedicated patrons (Better Quality): spawn interval in frames @ 60 FPS (720≈5/min, 180≈20/min)
-BISTRO_SEEKER_SPAWN_MIN_FRAMES = 180
-BISTRO_SEEKER_SPAWN_MAX_FRAMES = 720
-BISTRO_SEEKER_MAX_CONCURRENT = 8
+BISTRO_UPGRADE_COST_AUTO_SEASON = 520
+# Dedicated patrons (Better Quality): target rates requested.
+# - No upgrade: ~20 patrons per 2.5 minutes => ~1 every 7.5s
+# - With upgrade: ~23 patrons per 2 minutes => ~1 every 5.22s
+BISTRO_SEEKER_SPAWN_MIN_FRAMES = int(60 * 4.8)   # ~4.8s
+BISTRO_SEEKER_SPAWN_MAX_FRAMES = int(60 * 7.8)   # ~7.8s
+BISTRO_SEEKER_MAX_CONCURRENT = 14
 
 bistro_upgrade_advanced_advertising = False
 bistro_upgrade_better_quality = False
 bistro_upgrade_delicious_smell = False
+bistro_upgrade_auto_seasoning = False
 bistro_seeker_spawn_timer = random.randint(BISTRO_SEEKER_SPAWN_MIN_FRAMES, BISTRO_SEEKER_SPAWN_MAX_FRAMES)
 
 BISTRO_PANTRY_MAX = 15
@@ -591,7 +683,7 @@ def chef_level_from_xp(xp: int, table) -> int:
 
 
 def chef_cook_frames(level: int, source: str) -> int:
-    base = 180 if source == "microwave" else 300
+    base = MICROWAVE_COOK_FRAMES if source == "microwave" else STOVE_COOK_FRAMES
     # Each level above 1: 10% faster (duration * 0.9^(level-1))
     mult = 0.9 ** max(0, level - 1)
     return max(45, int(base * mult))
@@ -602,6 +694,10 @@ def ingredients_union_for_chefs():
     for c in bistro_chefs:
         recipe, _ = ALL_BISTRO_RECIPES[c["recipe_idx"]]
         need.update(recipe["ingredients"].keys())
+    # If auto-seasoning is enabled, keep seasoning stocked even for recipes
+    # that don't strictly require it (chefs will consume it to boost value).
+    if bistro_upgrade_auto_seasoning:
+        need.add("Seasoning")
     return need
 
 
@@ -704,6 +800,12 @@ def update_bistro_chefs():
             if c["timer"] == 0:
                 dish = build_cooked_result(recipe, source)
                 cst = int(getattr(dish, "cooked_cost_basis", 0) or MICROWAVE_FEE)
+                # Auto-seasoning upgrade: consume pantry seasoning to boost dish value.
+                if bistro_upgrade_auto_seasoning and bistro_pantry.get("Seasoning", 0) > 0:
+                    bistro_pantry["Seasoning"] = int(bistro_pantry.get("Seasoning", 0)) - 1
+                    if bistro_pantry.get("Seasoning", 0) <= 0:
+                        bistro_pantry.pop("Seasoning", None)
+                    cst = int(math.ceil(cst * 1.5))
                 restaurant_stock_units.append({"name": dish.name, "cost": max(1, cst)})
                 c["xp"] += CHEF_XP_PER_PLATE
                 c["level"] = chef_level_from_xp(c["xp"], CHEF_LEVEL_XP)
@@ -919,7 +1021,7 @@ cooking_in_progress = False
 cooking_timer = 0
 cooking_timer_max = 0
 cooking_pending_item = None  # ShopItem to add when done
-cooking_pending_source = ""  # "microwave" | "stove"
+cooking_pending_source = ""  # "microwave" | "stove" | "grill"
 cooking_cost_basis = 0  # cost used for selling profit calc
 
 def clone_item(item: ShopItem) -> ShopItem:
@@ -937,11 +1039,24 @@ def clone_item(item: ShopItem) -> ShopItem:
         n.quick_drink = True
     if getattr(item, "stamina_restore_drink", None) is not None:
         n.stamina_restore_drink = int(getattr(item, "stamina_restore_drink", 0))
+    if getattr(item, "seasonable", False):
+        n.seasonable = True
+        n.seasoned = bool(getattr(item, "seasoned", False))
+    if getattr(item, "caught_fish", False):
+        n.caught_fish = True
     return n
 
 
+def cooking_fee_for_source(source: str) -> int:
+    if source == "microwave":
+        return MICROWAVE_FEE
+    if source == "grill":
+        return GRILL_FEE
+    return STOVE_FEE
+
+
 def compute_recipe_cost_basis(recipe: dict, source: str) -> int:
-    fee = MICROWAVE_FEE if source == "microwave" else STOVE_FEE
+    fee = cooking_fee_for_source(source)
     basis = fee
     for name, qty in recipe["ingredients"].items():
         if name in SUPERMARKET_ITEMS:
@@ -954,6 +1069,9 @@ def build_cooked_result(recipe: dict, source: str) -> ShopItem:
     result = clone_item(recipe["result"])
     result.cooked_by_player = True
     result.cooked_cost_basis = basis
+    # Seasoner can buff cooked meals once.
+    result.seasonable = True
+    result.seasoned = False
     return result
 
 
@@ -1030,8 +1148,13 @@ def start_cooking(recipe: dict, source: str):
     global money, cooking_in_progress, cooking_timer, cooking_timer_max
     global cooking_pending_item, cooking_pending_source, cooking_cost_basis
 
-    fee = MICROWAVE_FEE if source == "microwave" else STOVE_FEE
-    duration = 180 if source == "microwave" else 300  # 3s / 5s at 60 FPS
+    fee = cooking_fee_for_source(source)
+    if source == "microwave":
+        duration = MICROWAVE_COOK_FRAMES
+    elif source == "grill":
+        duration = GRILL_COOK_FRAMES
+    else:
+        duration = STOVE_COOK_FRAMES
 
     basis = compute_recipe_cost_basis(recipe, source)
 
@@ -1907,6 +2030,42 @@ class Supermarket:
             pygame.draw.rect(screen, (120, 80, 40), (sx + 15, self.y + 75, 30, 25))
             pygame.draw.rect(screen, (120, 80, 40), (sx + 105, self.y + 75, 30, 25))
 
+
+class SeafoodMarket:
+    """Sell caught fish (Sun Reef) for cash."""
+
+    def __init__(self):
+        # To the right of the ferry dock
+        self.original_x = 1640
+        self.width = 160
+        self.height = 132
+        self.y = 368
+
+    def check_collision(self, player_x, player_width):
+        return self.original_x < player_x + player_width and player_x < self.original_x + self.width
+
+    def draw(self, camera):
+        mx = int(round(camera.apply(self.original_x)))
+        if -self.width >= mx or mx >= WINDOW_WIDTH + self.width:
+            return
+        pygame.draw.rect(screen, (48, 98, 118), (mx, self.y, self.width, self.height), border_radius=6)
+        pygame.draw.rect(screen, (20, 55, 70), (mx, self.y, self.width, self.height), 3, border_radius=6)
+        # awning
+        for i in range(8):
+            c = (240, 248, 252) if i % 2 else (225, 92, 78)
+            pygame.draw.rect(screen, c, (mx + 6 + i * 19, self.y + 18, 18, 18), border_radius=2)
+        pygame.draw.rect(screen, (20, 55, 70), (mx, self.y + 34, self.width, 5))
+        # fish sign
+        pygame.draw.ellipse(screen, (210, 240, 255), (mx + 18, self.y + 54, 46, 28))
+        pygame.draw.polygon(screen, (210, 240, 255), [(mx + 54, self.y + 68), (mx + 72, self.y + 60), (mx + 70, self.y + 76)])
+        pygame.draw.circle(screen, (40, 45, 55), (mx + 38, self.y + 64), 2)
+        # counter
+        pygame.draw.rect(screen, (110, 78, 55), (mx + 10, self.y + 92, self.width - 20, 22), border_radius=6)
+        pygame.draw.rect(screen, (75, 52, 38), (mx + 10, self.y + 92, self.width - 20, 22), 2, border_radius=6)
+        sf = pygame.font.SysFont(None, 26)
+        sign = sf.render("SEAFOOD", True, (245, 252, 255))
+        screen.blit(sign, sign.get_rect(center=(mx + self.width // 2, self.y + 12)))
+
 class Hotel:
     def __init__(self):
         self.original_x = 1050
@@ -1948,6 +2107,8 @@ HOUSE_FURNITURE = {
     "microwave": {"w": 118, "h": 52, "price": 118, "chef": False, "coffee": False},
     "stove": {"w": 46, "h": 52, "price": 168, "chef": True, "coffee": False},
     "sink": {"w": 78, "h": 46, "price": 138, "chef": False, "coffee": True},
+    "grill": {"w": 86, "h": 54, "price": 220, "chef": False, "coffee": False},
+    "seasoner": {"w": 64, "h": 44, "price": 160, "chef": False, "coffee": False},
 }
 
 
@@ -2033,7 +2194,8 @@ class House:
         return self.original_x < player_x + player_width and player_x < self.original_x + self.width
 
     def draw(self, camera):
-        hx = camera.apply(self.original_x)
+        hx_f = camera.apply(self.original_x)
+        hx = int(round(hx_f))  # pixel-perfect alignment (roof/body/windows)
         if -self.width >= hx or hx >= WINDOW_WIDTH + self.width:
             return
         pygame.draw.rect(screen, (96, 118, 92), (hx, self.y, self.width, self.height))
@@ -2041,10 +2203,10 @@ class House:
         # Symmetric roof so the peak is perfectly centered.
         roof_overhang = 8
         roof_base_y = self.y + 30
-        roof_peak_y = self.y - 18
-        peak_x = int(hx + self.width // 2)
-        left_x = int(hx - roof_overhang)
-        right_x = int(hx + self.width + roof_overhang)
+        roof_peak_y = self.y - 24
+        peak_x = hx + self.width // 2
+        left_x = hx - roof_overhang
+        right_x = hx + self.width + roof_overhang
         pygame.draw.polygon(
             screen,
             (140, 86, 70),
@@ -2056,6 +2218,598 @@ class House:
         sf = pygame.font.SysFont(None, 26)
         home_lbl = sf.render("HOME", True, (245, 252, 235))
         screen.blit(home_lbl, home_lbl.get_rect(center=(hx + self.width // 2, self.y + 18)))
+
+
+class FerryDock:
+    """Pier past the suburbs — ride to Sun Reef island."""
+
+    def __init__(self):
+        self.original_x = 1420
+        self.width = 115
+        self.height = 95
+        self.y = 405
+
+    def check_collision(self, player_x, player_width):
+        return self.original_x < player_x + player_width and player_x < self.original_x + self.width
+
+    def draw(self, camera):
+        dx = int(round(camera.apply(self.original_x)))
+        if -self.width >= dx or dx >= WINDOW_WIDTH + self.width:
+            return
+        pygame.draw.rect(screen, (55, 105, 145), (dx - 30, 502, self.width + 90, 98))
+        for wx in range(-20, self.width + 40, 7):
+            pygame.draw.line(screen, (80, 140, 175), (dx + wx, 505), (dx + wx + 4, 598), 1)
+        pygame.draw.rect(screen, (100, 135, 95), (dx - 10, 498, self.width + 28, 8), border_radius=3)
+        for i in range(8):
+            pygame.draw.rect(screen, (130, 88, 58), (dx - 6 + i * 15, 468, 12, 34), border_radius=2)
+            pygame.draw.line(screen, (80, 55, 38), (dx - 6 + i * 15, 468), (dx - 6 + i * 15, 502), 2)
+        pygame.draw.rect(screen, (85, 58, 40), (dx - 12, 460, self.width + 28, 12), border_radius=4)
+        pygame.draw.rect(screen, (175, 128, 92), (dx + 8, 388, 56, 82), border_radius=5)
+        pygame.draw.rect(screen, (55, 40, 30), (dx + 8, 388, 56, 82), 2, border_radius=5)
+        pygame.draw.rect(screen, (220, 235, 255), (dx + 20, 402, 22, 18), border_radius=3)
+        lf = pygame.font.SysFont(None, 22)
+        screen.blit(lf.render("FERRY", True, (255, 248, 235)), (dx + 18, 362))
+        tf = pygame.font.SysFont(None, 16)
+        screen.blit(tf.render(f"Sun Reef  ·  ${FERRY_FARE}", True, (230, 245, 255)), (dx + 4, 344))
+
+
+FISH_CATCH_TABLE = (
+    ("Sand Minnow", 6, 16, 0.15),
+    ("Silver Sprat", 12, 22, 0.12),
+    ("Reef Sardine", 18, 26, 0.10),
+    ("Coral Bass", 26, 32, 0.09),
+    ("Lagoon Perch", 34, 36, 0.08),
+    ("Azure Tang", 44, 40, 0.07),
+    ("Tide Snapper", 56, 44, 0.06),
+    ("Sunscale Mackerel", 70, 48, 0.05),
+    ("Bluefin Needlefish", 86, 52, 0.042),
+    ("Golden Koi", 105, 56, 0.034),
+    ("Pearl Pike", 128, 60, 0.028),
+    ("Glitter Grouper", 152, 64, 0.022),
+    ("Crown Carp", 178, 68, 0.018),
+    ("Storm Barracuda", 210, 72, 0.014),
+    ("Opal Eel", 248, 76, 0.011),
+    ("Lionheart Tuna", 295, 80, 0.0085),
+    ("Aurora Sturgeon", 360, 84, 0.0065),
+    ("Deepglass Swordfish", 440, 88, 0.0048),
+    ("Starfall Ray", 540, 92, 0.0034),
+    ("Moonfin Marlin", 700, 96, 0.0022),
+    # --- 100 new fish (stronger, rarer, more valuable) ---
+    ("Seabreeze Smelt", 10, 18, 0.11),
+    ("Pebble Guppy", 11, 19, 0.105),
+    ("Dawn Shiner", 12, 20, 0.10),
+    ("Glass Anchovy", 13, 20, 0.095),
+    ("Harbor Herring", 14, 21, 0.090),
+    ("Lemonfin Fry", 15, 22, 0.086),
+    ("Kelp Darter", 16, 22, 0.082),
+    ("Foamrunner", 17, 23, 0.078),
+    ("Shellback Squeaker", 18, 24, 0.074),
+    ("Bay Skipper", 19, 24, 0.071),
+    ("Coral Cricketfish", 20, 25, 0.068),
+    ("Tidepool Tetra", 21, 26, 0.065),
+    ("Sunstripe Sprinter", 22, 26, 0.062),
+    ("Reef Ribbonfish", 23, 27, 0.060),
+    ("Sandbar Sculpin", 24, 28, 0.057),
+    ("Pearl Minnow", 25, 28, 0.055),
+    ("Cove Char", 26, 29, 0.052),
+    ("Blueblink Bream", 27, 30, 0.050),
+    ("Shallow Snapper", 28, 30, 0.048),
+    ("Drift Carp", 30, 31, 0.046),
+    ("Honeyfin Haddock", 32, 32, 0.044),
+    ("Kelpkeeper Codlet", 34, 33, 0.042),
+    ("Wavecrest Wrasse", 36, 33, 0.040),
+    ("Saffron Scad", 38, 34, 0.038),
+    ("Seaglass Sardine", 40, 35, 0.036),
+    ("Starlit Mullet", 42, 35, 0.034),
+    ("Brine Bopper", 45, 36, 0.032),
+    ("Ribbonfin Roach", 48, 37, 0.030),
+    ("Current Chub", 52, 38, 0.028),
+    ("Dune Drum", 56, 39, 0.026),
+    ("Reef Roosterfish", 60, 40, 0.024),
+    ("Sunreef Salmonlet", 64, 41, 0.022),
+    ("Palmshadow Piranha", 68, 42, 0.020),
+    ("Coral Crownfish", 72, 43, 0.0185),
+    ("Lantern Ling", 76, 44, 0.0170),
+    ("Moonwake Mackerel", 80, 45, 0.0158),
+    ("Sapphire Sucker", 84, 46, 0.0146),
+    ("Crimson Crevalle", 88, 47, 0.0135),
+    ("Stormfin Sheepshead", 92, 48, 0.0125),
+    ("Bristlejaw Bream", 96, 49, 0.0116),
+    ("Tanglejaw Trout", 100, 50, 0.0108),
+    ("Whitesand Wahoo", 110, 52, 0.0100),
+    ("Seasong Silverside", 120, 54, 0.0093),
+    ("Glimmer Gar", 130, 56, 0.0087),
+    ("Inkline Grouper", 140, 58, 0.0081),
+    ("Coralcoat Catfish", 150, 60, 0.0076),
+    ("Citrusfin Cobia", 160, 62, 0.0071),
+    ("Reefblade Raptorfish", 170, 64, 0.0067),
+    ("Opaline Oceanpike", 180, 66, 0.0063),
+    ("Galejaw Garfish", 195, 68, 0.0059),
+    ("Tidebreaker Trevally", 210, 70, 0.0056),
+    ("Bluefire Bonito", 225, 72, 0.0053),
+    ("Sunflare Snapper", 240, 74, 0.0050),
+    ("Pearlstorm Pike", 260, 76, 0.0047),
+    ("Abyssal Amberjack", 280, 78, 0.0044),
+    ("Starpepper Swordlet", 300, 80, 0.0041),
+    ("Nightreef Nibbler", 320, 82, 0.0039),
+    ("Glimmerjaw Grouper", 340, 84, 0.0037),
+    ("Aurora Angelfish", 360, 86, 0.0035),
+    ("Crownscale Carp", 385, 88, 0.0033),
+    ("Thundercove Tuna", 410, 90, 0.0031),
+    ("Moonlace Moray", 440, 92, 0.0029),
+    ("Deepcurrent Dolphinfish", 470, 94, 0.0027),
+    ("Sunken Sablefish", 500, 96, 0.0025),
+    ("Opalfin Oarfish", 540, 98, 0.0023),
+    ("Starfall Surgeonfish", 580, 100, 0.0021),
+    ("Crystalcrest Coelacanth", 640, 104, 0.0019),
+    ("Reefshadow Ripper", 700, 108, 0.0017),
+    ("Abyssglass Arowana", 780, 112, 0.0015),
+    ("Lighthouse Leviathanlet", 860, 116, 0.00135),
+    ("Mirage Marlinlet", 940, 120, 0.00122),
+    ("Nebula Needlefish", 1020, 124, 0.00110),
+    ("Starlight Sturgeon", 1100, 128, 0.00100),
+    ("Comet Crestfish", 1200, 132, 0.00090),
+    ("Mythscale Manta", 1320, 136, 0.00082),
+    ("Crown of Coral Koi", 1450, 140, 0.00074),
+    ("Skytear Swordfish", 1600, 144, 0.00067),
+    ("Moonmint Marlin", 1750, 148, 0.00060),
+    ("Aurora Emperor Tuna", 1900, 152, 0.00054),
+    ("Starforge Sturgeon", 2100, 156, 0.00049),
+    ("Deepglass Dragonfish", 2350, 160, 0.00044),
+    ("Celestial Sailfish", 2600, 164, 0.00040),
+    ("Eclipse Eel", 2900, 168, 0.00036),
+    ("Cosmic Crownray", 3200, 172, 0.00033),
+    ("Mythic Moonfin Prime", 3600, 178, 0.00030),
+    ("Sun Reef Sovereign", 4200, 184, 0.00027),
+    ("Stardrop Seraphfish", 5000, 192, 0.00024),
+    ("Ocean Oracle", 6200, 200, 0.00021),
+    ("Astral Ancestorfish", 8000, 220, 0.00018),
+    ("Voidwake Marlin", 11000, 250, 0.00015),
+    ("Heavenreef Herald", 16000, 300, 0.00012),
+    ("Sun Reef Mythos", 25000, 380, 0.00009),
+    ("One-in-a-Million", 99999, 600, 0.00003),
+)
+
+
+def _fish_reset_minigame():
+    global fish_phase, fish_cast_power, fish_wait_until_tick, fish_hook_deadline_tick
+    global fish_reel_progress, fish_pos, fish_vel, fish_player_center, fish_struggle_phase, fish_pending_roll
+    fish_phase = "idle"
+    fish_cast_power = 0.0
+    fish_wait_until_tick = 0
+    fish_hook_deadline_tick = 0
+    fish_reel_progress = 0.0
+    fish_pos = 0.5
+    fish_vel = 0.0
+    fish_player_center = 0.5
+    fish_struggle_phase = 0.0
+    fish_pending_roll = None
+
+
+def _fish_make_item(name: str, price: int, hunger: int) -> ShopItem:
+    it = ShopItem(name, price, hunger, item_type="food")
+    it.caught_fish = True
+    return it
+
+
+def fish_rarity_label(name: str) -> tuple[str, tuple]:
+    """Return (label, color) for a fish name based on its rarity tier."""
+    names = [row[0] for row in FISH_CATCH_TABLE]
+    if name not in names:
+        return "Unknown", (140, 150, 160)
+    idx = names.index(name)
+    n = max(1, len(names))
+    p = idx / float(max(1, n - 1))  # 0..1
+    # Percentile tiers so this works for any catalog size.
+    if p <= 0.35:
+        return "Common", (120, 140, 150)
+    if p <= 0.60:
+        return "Uncommon", (80, 190, 120)
+    if p <= 0.78:
+        return "Rare", (80, 160, 255)
+    if p <= 0.90:
+        return "Epic", (190, 110, 255)
+    if p <= 0.97:
+        return "Legendary", (255, 190, 80)
+    return "Mythic", (255, 105, 180)
+
+
+def _fish_weighted_roll(cast_q: float, reel_remain: float) -> tuple:
+    """cast_q,reel_remain in ~0..1 improve rare odds slightly."""
+    bonus = max(0.0, min(0.12, (cast_q - 0.35) * 0.15 + (reel_remain - 0.5) * 0.08))
+    weights = [max(0.02, w + bonus * (0.15 + i * 0.04)) for i, (*_, w) in enumerate(FISH_CATCH_TABLE)]
+    s = sum(weights)
+    r = random.random() * s
+    acc = 0.0
+    for i, row in enumerate(FISH_CATCH_TABLE):
+        acc += weights[i]
+        if r <= acc:
+            return row[0], row[1], row[2]
+    t = FISH_CATCH_TABLE[-1]
+    return t[0], t[1], t[2]
+
+
+def try_board_ferry_to_island():
+    global money, ferry_anim_timer, ferry_anim_to_island
+    if ferry_anim_timer > 0:
+        return
+    if money < FERRY_FARE:
+        show_failure_toast(f"Need ${FERRY_FARE} for the ferry.")
+        return
+    money -= FERRY_FARE
+    ferry_anim_to_island = True
+    ferry_anim_timer = FERRY_CROSSING_FRAMES
+    _fish_reset_minigame()
+    show_success_toast("Casting off for Sun Reef…")
+
+
+def try_board_ferry_to_city():
+    global ferry_anim_timer, ferry_anim_to_island
+    if ferry_anim_timer > 0:
+        return
+    ferry_anim_to_island = False
+    ferry_anim_timer = FERRY_CROSSING_FRAMES
+    _fish_reset_minigame()
+    show_success_toast("Returning to the mainland…")
+
+
+def island_near_ferry() -> bool:
+    return island_player_x >= 20.0 and island_player_x <= 155.0
+
+
+def island_in_fishing_zone() -> bool:
+    return island_player_x >= 430.0
+
+
+def update_ferry_animation_tick():
+    global ferry_anim_timer, on_fishing_island, island_player_x, player_x
+    if ferry_anim_timer <= 0:
+        return
+    ferry_anim_timer -= 1
+    if ferry_anim_timer == 0:
+        on_fishing_island = ferry_anim_to_island
+        if on_fishing_island:
+            island_player_x = 120.0
+            show_success_toast("Welcome to Sun Reef — crystal water, slow time.")
+        else:
+            player_x = ferry_dock.original_x + 28
+
+
+def draw_ferry_crossing_cinematic():
+    t = 1.0 - (ferry_anim_timer / float(max(1, FERRY_CROSSING_FRAMES)))
+    # Sky
+    for y in range(WINDOW_HEIGHT):
+        u = y / float(WINDOW_HEIGHT)
+        c = (
+            int(40 + u * 80),
+            int(70 + u * 100),
+            int(120 + u * 90),
+        )
+        pygame.draw.line(screen, c, (0, y), (WINDOW_WIDTH, y))
+    # Sun / moon glow
+    cx, cy = int(WINDOW_WIDTH * 0.72), int(80 + 40 * math.sin(t * math.pi))
+    pygame.draw.circle(screen, (255, 230, 160), (cx, cy), 38)
+    pygame.draw.circle(screen, (255, 250, 220), (cx, cy), 22)
+    # Ocean layers
+    base_y = 280
+    for layer in range(5):
+        oy = base_y + layer * 28
+        col = (35 + layer * 12, 95 + layer * 15, 140 + layer * 10)
+        pts = []
+        for x in range(0, WINDOW_WIDTH + 16, 8):
+            wave = 10 * math.sin(x * 0.02 + t * 14 + layer * 0.7) + 6 * math.sin(x * 0.05 - t * 9)
+            pts.append((x, int(oy + wave)))
+        pts.append((WINDOW_WIDTH, WINDOW_HEIGHT))
+        pts.append((0, WINDOW_HEIGHT))
+        if len(pts) > 3:
+            pygame.draw.polygon(screen, col, pts)
+    # Foam
+    for x in range(0, WINDOW_WIDTH, 20):
+        fx = int(x + 30 * math.sin(t * 8 + x * 0.1))
+        pygame.draw.circle(screen, (220, 240, 252), (fx, base_y + 18), 3)
+
+    # Ferry boat
+    bx = int(-120 + t * (WINDOW_WIDTH + 240))
+    by = 310
+    pygame.draw.ellipse(screen, (55, 52, 58), (bx, by + 40, 160, 36))
+    pygame.draw.rect(screen, (88, 82, 90), (bx + 20, by, 120, 48), border_radius=6)
+    pygame.draw.rect(screen, (120, 200, 255), (bx + 36, by + 10, 36, 22), border_radius=4)
+    pygame.draw.rect(screen, (40, 38, 44), (bx + 86, by + 8, 18, 34), border_radius=3)
+    pygame.draw.polygon(screen, (70, 68, 75), [(bx + 140, by + 10), (bx + 168, by + 24), (bx + 140, by + 38)])
+    lf = pygame.font.SysFont(None, 34)
+    title = lf.render("SUN REEF LINE", True, (245, 250, 255))
+    screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 56)))
+    sub = pygame.font.SysFont(None, 22).render("Hold tight — salt wind & gulls ahead", True, (220, 235, 250))
+    screen.blit(sub, sub.get_rect(center=(WINDOW_WIDTH // 2, 92)))
+    bar_w = 280
+    prog = pygame.Rect((WINDOW_WIDTH - bar_w) // 2, WINDOW_HEIGHT - 52, int(bar_w * t), 10)
+    pygame.draw.rect(screen, (20, 30, 45), ((WINDOW_WIDTH - bar_w) // 2 - 2, WINDOW_HEIGHT - 54, bar_w + 4, 14), border_radius=6)
+    pygame.draw.rect(screen, (100, 200, 255), prog, border_radius=4)
+
+
+def _island_draw_sky():
+    for y in range(WINDOW_HEIGHT):
+        u = y / float(WINDOW_HEIGHT)
+        r = int(255 - u * 120)
+        g = int(190 - u * 70)
+        b = int(220 - u * 40)
+        pygame.draw.line(screen, (r, g, b), (0, y), (WINDOW_WIDTH, y))
+    cx, cy = WINDOW_WIDTH - 120, 85
+    pygame.draw.circle(screen, (255, 248, 210), (cx, cy), 45)
+    pygame.draw.circle(screen, (255, 255, 245), (cx, cy), 28)
+    for i in range(3):
+        pygame.draw.arc(screen, (255, 250, 230), (cx - 60 + i * 8, cy - 60 + i * 6, 120, 120), 0.8, 2.2, 2)
+
+
+def _island_draw_ocean(surf_t: float):
+    horizon = 240
+    pygame.draw.rect(screen, (72, 140, 185), (0, horizon, WINDOW_WIDTH, WINDOW_HEIGHT - horizon))
+    for layer in range(6):
+        oy = horizon + 8 + layer * 14
+        shade = 72 + layer * 8
+        col = (shade, 130 + layer * 6, 175 + layer * 5)
+        pts = []
+        for x in range(-8, WINDOW_WIDTH + 8, 6):
+            w = 9 * math.sin(x * 0.018 + surf_t * 0.08 + layer * 0.9)
+            w += 5 * math.sin(x * 0.04 - surf_t * 0.05)
+            pts.append((x, int(oy + w)))
+        pts += [(WINDOW_WIDTH + 8, WINDOW_HEIGHT), (-8, WINDOW_HEIGHT)]
+        pygame.draw.polygon(screen, col, pts)
+    for x in range(0, WINDOW_WIDTH, 14):
+        px = int(x + 20 * math.sin(surf_t * 0.12 + x * 0.05))
+        pygame.draw.circle(screen, (230, 248, 255), (px, horizon + 6), 3)
+
+
+def _island_draw_palm(px, base_y, sway):
+    trunk_top = base_y - 90
+    pygame.draw.rect(screen, (120, 78, 48), (px - 6, trunk_top, 12, 95), border_radius=4)
+    pygame.draw.rect(screen, (90, 58, 38), (px - 6, trunk_top, 12, 95), 2, border_radius=4)
+    for i in range(7):
+        ang = -1.2 + i * 0.35 + sway * 0.08
+        lx = px + int(math.cos(ang) * 72)
+        ly = trunk_top + int(math.sin(ang) * 28)
+        pygame.draw.line(screen, (40, 120, 72), (px, trunk_top), (lx, ly), 5)
+        pygame.draw.line(screen, (70, 160, 95), (px, trunk_top), (lx, ly), 2)
+
+
+def draw_fishing_island_scene():
+    global island_ambient_frame
+    island_ambient_frame += 1
+    st = island_ambient_frame * 0.02
+    _island_draw_sky()
+    _island_draw_ocean(st)
+    # distant islet
+    pygame.draw.circle(screen, (85, 140, 110), (90, 220), 28)
+    pygame.draw.circle(screen, (95, 150, 118), (78, 212), 14)
+    # Beach / sand
+    sand_pts = [(0, ISLAND_FEET_Y + 8), (0, WINDOW_HEIGHT), (WINDOW_WIDTH, WINDOW_HEIGHT), (WINDOW_WIDTH, 360), (620, 320), (480, ISLAND_FEET_Y - 12), (320, ISLAND_FEET_Y + 4), (120, ISLAND_FEET_Y + 20)]
+    pygame.draw.polygon(screen, (238, 220, 170), sand_pts)
+    pygame.draw.polygon(screen, (210, 188, 140), sand_pts, 3)
+    for i in range(25):
+        sx = int(40 + (i * 73) % (WINDOW_WIDTH - 80))
+        sy = ISLAND_FEET_Y + 12 + (i * 17) % 40
+        pygame.draw.ellipse(screen, (228, 208, 175), (sx, sy, 10 + (i % 4), 4))
+    # Sparkles
+    for i in range(18):
+        sx = int(50 + (i * 97 + island_ambient_frame) % (WINDOW_WIDTH - 100))
+        sy = ISLAND_FEET_Y - 10 + int(8 * math.sin(st + i))
+        al = int(80 + 80 * math.sin(st * 2 + i))
+        sp = pygame.Surface((6, 6), pygame.SRCALPHA)
+        pygame.draw.circle(sp, (255, 255, 245, al), (3, 3), 2)
+        screen.blit(sp, (sx, sy))
+    # Rocks at fishing point
+    for rx, ry, rw in ((540, ISLAND_FEET_Y - 35, 38), (600, ISLAND_FEET_Y - 22, 52), (680, ISLAND_FEET_Y - 40, 44)):
+        pygame.draw.polygon(screen, (88, 92, 98), [(rx, ry), (rx + rw, ry - 8), (rx + rw - 6, ry + 28), (rx - 10, ry + 22)])
+        pygame.draw.polygon(screen, (55, 58, 62), [(rx, ry), (rx + rw, ry - 8), (rx + rw - 6, ry + 28), (rx - 10, ry + 22)], 2)
+    # Fishing marker (so it's obvious where to start)
+    if fish_phase == "idle":
+        fx, fy = 620, int(ISLAND_FEET_Y - 64)
+        glow = pygame.Surface((200, 90), pygame.SRCALPHA)
+        pygame.draw.ellipse(glow, (120, 220, 255, 42), (0, 28, 200, 56))
+        pygame.draw.ellipse(glow, (255, 255, 255, 26), (20, 34, 160, 44))
+        screen.blit(glow, (fx - 100, fy - 20))
+        tipf = pygame.font.SysFont(None, 24)
+        tip = tipf.render("F: Fish here", True, (30, 45, 60))
+        pygame.draw.rect(screen, (255, 245, 230), tip.get_rect(center=(fx, fy)).inflate(18, 10), border_radius=10)
+        pygame.draw.rect(screen, (120, 200, 255), tip.get_rect(center=(fx, fy)).inflate(18, 10), 2, border_radius=10)
+        screen.blit(tip, tip.get_rect(center=(fx, fy)))
+    # Palms
+    _island_draw_palm(160, ISLAND_FEET_Y + 35, math.sin(st))
+    _island_draw_palm(280, ISLAND_FEET_Y + 40, math.sin(st + 1))
+    _island_draw_palm(WINDOW_WIDTH - 100, ISLAND_FEET_Y + 32, math.sin(st + 2))
+    # Docked ferry
+    pygame.draw.ellipse(screen, (60, 58, 64), (8, ISLAND_FEET_Y - 28, 130, 34))
+    pygame.draw.rect(screen, (92, 88, 95), (28, ISLAND_FEET_Y - 78, 96, 52), border_radius=5)
+    pygame.draw.rect(screen, (130, 210, 255), (44, ISLAND_FEET_Y - 64, 32, 22), border_radius=3)
+    pygame.draw.rect(screen, (45, 120, 160), (0, ISLAND_FEET_Y - 6, 200, 120))
+    pygame.draw.rect(screen, (55, 130, 175), (0, ISLAND_FEET_Y - 6, 200, 14), border_radius=4)
+    # Gulls
+    for g in range(4):
+        gx = int(200 + g * 160 + 40 * math.sin(st * 1.2 + g))
+        gy = int(60 + g * 25 + 10 * math.sin(st * 0.8 + g))
+        pygame.draw.arc(screen, (245, 248, 255), (gx, gy, 22, 14), 0.2, 2.8, 2)
+    # Driftwood + shell
+    pygame.draw.ellipse(screen, (150, 118, 88), (340, ISLAND_FEET_Y + 8, 62, 14))
+    pygame.draw.circle(screen, (255, 228, 220), (410, ISLAND_FEET_Y + 22), 8)
+    pygame.draw.circle(screen, (200, 160, 150), (410, ISLAND_FEET_Y + 22), 8, 2)
+    # Sign
+    sf = pygame.font.SysFont(None, 26)
+    screen.blit(sf.render("SUN REEF · fishing cove", True, (60, 45, 35)), (420, ISLAND_FEET_Y - 118))
+    draw_player(int(island_player_x), ISLAND_FEET_Y - player_height)
+    # Bobber / minigame layers
+    if fish_phase in ("wait", "hookset", "reel"):
+        bx = min(WINDOW_WIDTH - 40, max(460, 520 + int(30 * math.sin(st * 3))))
+        by = 248 + int(6 * math.sin(st * 4))
+        if fish_phase == "wait":
+            pygame.draw.circle(screen, (240, 90, 70), (bx, int(by)), 5)
+            pygame.draw.line(screen, (60, 50, 40), (bx, int(by)), (bx, int(by) - 40), 2)
+            for ri in range(3):
+                pygame.draw.circle(screen, (255, 255, 255, 60), (bx, int(by)), 16 + ri * 10, 1)
+        elif fish_phase == "hookset":
+            pygame.draw.circle(screen, (255, 220, 60), (bx, int(by)), 8)
+        elif fish_phase == "reel":
+            pygame.draw.circle(screen, (255, 100, 80), (bx, int(by)), 6)
+            pygame.draw.line(screen, (50, 40, 35), (bx, int(by)), (int(island_player_x) + 20, ISLAND_FEET_Y - 40), 2)
+    for sx, sy, vy, life in fish_splash[:]:
+        pygame.draw.circle(screen, (220, 240, 255), (int(sx), int(sy)), 3)
+    _draw_fishing_minigame_overlay()
+
+
+def _draw_fishing_minigame_overlay():
+    if fish_phase == "idle":
+        return
+    panel = pygame.Surface((WINDOW_WIDTH, 120), pygame.SRCALPHA)
+    panel.fill((12, 18, 28, 210))
+    screen.blit(panel, (0, WINDOW_HEIGHT - 120))
+    font = pygame.font.SysFont(None, 26)
+    small = pygame.font.SysFont(None, 22)
+    y0 = WINDOW_HEIGHT - 112
+    if fish_phase == "cast":
+        screen.blit(font.render("Hold SPACE — build cast power, release to throw", True, WHITE), (20, y0))
+        pw = int(min(1.0, fish_cast_power) * 360)
+        pygame.draw.rect(screen, (40, 50, 60), (20, y0 + 36, 360, 16), border_radius=6)
+        pygame.draw.rect(screen, (100, 200, 255), (20, y0 + 36, pw, 16), border_radius=6)
+        screen.blit(small.render("Better casts nudge rare fish odds", True, (200, 210, 220)), (20, y0 + 58))
+    elif fish_phase == "wait":
+        screen.blit(font.render("Watching the bobber… stay ready", True, (200, 235, 255)), (20, y0))
+    elif fish_phase == "hookset":
+        rem = max(0, fish_hook_deadline_tick - pygame.time.get_ticks())
+        screen.blit(font.render("STRIKE! TAP SPACE NOW!", True, (255, 230, 80)), (20, y0))
+        screen.blit(small.render(f"{rem // 40 + 1}…", True, WHITE), (20, y0 + 34))
+    elif fish_phase == "reel":
+        screen.blit(font.render("Reel! Keep the fish inside your blue bar (A / D)", True, WHITE), (20, y0))
+        bar_x, bar_y, bar_w, bar_h = 20, y0 + 34, 360, 28
+        pygame.draw.rect(screen, (35, 40, 50), (bar_x, bar_y, bar_w, bar_h), border_radius=6)
+        z_half = 0.14
+        pc = bar_x + int(fish_player_center * bar_w)
+        zl = int(max(bar_x + 4, pc - z_half * bar_w))
+        zr = int(min(bar_x + bar_w - 4, pc + z_half * bar_w))
+        zs = pygame.Surface((max(8, zr - zl), bar_h - 6), pygame.SRCALPHA)
+        pygame.draw.rect(zs, (70, 140, 220, 140), zs.get_rect(), border_radius=4)
+        screen.blit(zs, (zl, bar_y + 3))
+        fx = bar_x + int(max(0, min(1, fish_pos)) * bar_w)
+        pygame.draw.circle(screen, (255, 180, 100), (fx, bar_y + bar_h // 2), 10)
+        pygame.draw.circle(screen, (80, 60, 40), (fx, bar_y + bar_h // 2), 10, 2)
+        pr = int(max(0, min(100, fish_reel_progress)))
+        pygame.draw.rect(screen, (30, 35, 45), (400, bar_y, 180, bar_h), border_radius=6)
+        pygame.draw.rect(screen, (80, 220, 160), (400, bar_y, int(1.8 * pr), bar_h), border_radius=6)
+        screen.blit(small.render(f"Tension {pr}%", True, (200, 255, 220)), (400, y0))
+    elif fish_phase == "win":
+        nm = fish_pending_roll[0] if fish_pending_roll else "Fish"
+        screen.blit(font.render(f"Caught: {nm}!", True, (120, 255, 190)), (20, y0))
+        screen.blit(small.render("SPACE to continue", True, (220, 225, 230)), (20, y0 + 36))
+    elif fish_phase == "lose":
+        screen.blit(font.render("It got away…", True, (255, 200, 200)), (20, y0))
+        screen.blit(small.render("SPACE to try again", True, (220, 220, 230)), (20, y0 + 36))
+
+
+def update_fishing_minigame(keys):
+    global fish_phase, fish_cast_power, fish_wait_until_tick, fish_hook_deadline_tick
+    global fish_reel_progress, fish_pos, fish_vel, fish_player_center, fish_struggle_phase, fish_pending_roll, fish_splash
+    now = pygame.time.get_ticks()
+    if fish_phase == "cast":
+        if keys[pygame.K_SPACE]:
+            fish_cast_power = min(1.0, fish_cast_power + 0.022)
+        else:
+            if fish_cast_power >= 0.12:
+                fish_phase = "wait"
+                fish_wait_until_tick = now + random.randint(900, 2800)
+                fish_splash = []
+            else:
+                fish_cast_power = max(0.0, fish_cast_power - 0.04)
+    elif fish_phase == "wait":
+        if now >= fish_wait_until_tick:
+            fish_phase = "hookset"
+            fish_hook_deadline_tick = now + 420
+    elif fish_phase == "hookset":
+        if now > fish_hook_deadline_tick:
+            fish_phase = "lose"
+    elif fish_phase == "reel":
+        fish_struggle_phase += 0.09
+        # 4× slower fish movement (player feedback): reduce all impulses.
+        fish_vel += (random.random() - 0.5) * 0.01
+        fish_vel += 0.0045 * math.sin(fish_struggle_phase * 1.7)
+        fish_vel += 0.0030 * math.sin(fish_struggle_phase * 0.5 + fish_pos * 6)
+        fish_vel *= 0.92
+        fish_pos += fish_vel
+        if fish_pos < 0.08 or fish_pos > 0.92:
+            fish_vel *= -0.55
+            fish_pos = max(0.08, min(0.92, fish_pos))
+        acc = 0.0
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            acc -= 0.006
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            acc += 0.006
+        fish_player_center = max(0.14, min(0.86, fish_player_center + acc))
+        z_half = 0.14
+        if abs(fish_pos - fish_player_center) < z_half:
+            fish_reel_progress = min(100.0, fish_reel_progress + 1.35)
+        else:
+            fish_reel_progress = max(0.0, fish_reel_progress - 0.35)
+        if fish_reel_progress >= 100.0:
+            cq = min(1.0, fish_cast_power + 0.1)
+            rm = fish_reel_progress / 100.0
+            nm, pr, hu = _fish_weighted_roll(cq, rm)
+            fish_pending_roll = (nm, pr, hu)
+            fish_phase = "win"
+        elif fish_reel_progress <= 0.0:
+            fish_phase = "lose"
+    # splash particles decay
+    new_sp = []
+    for sx, sy, vy, life in fish_splash:
+        life -= 1
+        if life > 0:
+            new_sp.append((sx, sy + vy, vy + 0.2, life))
+    fish_splash = new_sp
+
+
+def fishing_try_hookset():
+    global fish_phase, fish_hook_deadline_tick, fish_reel_progress, fish_pos, fish_vel, fish_struggle_phase
+    now = pygame.time.get_ticks()
+    if fish_phase == "hookset" and now <= fish_hook_deadline_tick:
+        fish_phase = "reel"
+        fish_reel_progress = 22.0
+        fish_pos = 0.5
+        fish_vel = random.choice([-0.04, 0.04])
+        fish_struggle_phase = random.random() * 6.28
+        fish_hook_deadline_tick = 0
+        fish_splash.clear()
+        for _ in range(12):
+            fish_splash.append((520 + random.uniform(-20, 20), 255, random.uniform(-2, -0.5), 25))
+
+
+def fishing_try_begin_cast():
+    global fish_phase, fish_cast_power
+    if fish_phase != "idle":
+        return
+    fish_phase = "cast"
+    fish_cast_power = 0.0
+
+
+def fishing_resolve_end():
+    global fish_phase, fish_pending_roll, xp
+    if fish_phase == "win" and fish_pending_roll:
+        nm, pr, hu = fish_pending_roll
+        it = _fish_make_item(nm, pr, hu)
+        if inventory_can_accept(it):
+            try_add_inventory(it)
+            xp_gain = 35 + pr // 4
+            xp += xp_gain
+            check_level_up()
+            show_success_toast(f"You caught a {nm}! (+{xp_gain} XP)")
+        else:
+            show_failure_toast("Inventory full — fish slipped back into the surf.")
+        fish_pending_roll = None
+    _fish_reset_minigame()
+
+
+def fishing_on_space_key():
+    if fish_phase == "hookset":
+        fishing_try_hookset()
+    elif fish_phase == "win":
+        fishing_resolve_end()
+    elif fish_phase == "lose":
+        _fish_reset_minigame()
 
 
 def draw_house_lobby_menu():
@@ -2079,7 +2833,8 @@ def draw_house_lobby_menu():
     menu_x = (WINDOW_WIDTH - menu_w) // 2
     menu_y = (WINDOW_HEIGHT - menu_h) // 2
     menu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
-    draw_panel(menu_rect, border, title=title, title_color=border)
+    # Use a neutral title color for readability.
+    draw_panel(menu_rect, border, title=title, title_color=(25, 35, 30))
 
     y = menu_rect.y + 72
     x = menu_rect.x + inner_pad
@@ -2095,8 +2850,9 @@ def draw_house_lobby_menu():
     et = btn_font.render(lab, True, BLACK)
     screen.blit(et, et.get_rect(center=enter_rect.center))
 
-    close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
-    pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+    # Slightly larger hitbox so it's easy to click.
+    close_rect = pygame.Rect(menu_rect.right - 52, menu_rect.top + 12, 38, 34)
+    pygame.draw.rect(screen, RED, close_rect, border_radius=7)
     xt = get_font(30, bold=True).render("X", True, WHITE)
     screen.blit(xt, xt.get_rect(center=close_rect.center))
     return enter_rect, close_rect
@@ -2125,6 +2881,21 @@ def draw_house_furniture_sprite(kind: str, sx: float, top_y: float):
         pygame.draw.rect(screen, (200, 210, 220), r, border_radius=8)
         pygame.draw.rect(screen, (120, 140, 155), r, 2, border_radius=8)
         pygame.draw.ellipse(screen, (170, 190, 205), (r.x + 14, r.y + 10, r.w - 28, r.h - 22))
+    elif kind == "grill":
+        r = pygame.Rect(int(sx), int(top_y), HOUSE_FURNITURE["grill"]["w"], HOUSE_FURNITURE["grill"]["h"])
+        pygame.draw.rect(screen, (55, 55, 62), r, border_radius=10)
+        pygame.draw.rect(screen, (20, 20, 24), r, 2, border_radius=10)
+        pygame.draw.rect(screen, (90, 90, 98), (r.x + 10, r.y + 10, r.w - 20, 10), border_radius=5)
+        for i in range(5):
+            pygame.draw.line(screen, (140, 140, 150), (r.x + 14 + i * 12, r.y + 22), (r.x + 14 + i * 12, r.y + r.h - 10), 2)
+        pygame.draw.circle(screen, (255, 120, 20), (r.right - 16, r.y + 16), 5)
+    elif kind == "seasoner":
+        r = pygame.Rect(int(sx), int(top_y), HOUSE_FURNITURE["seasoner"]["w"], HOUSE_FURNITURE["seasoner"]["h"])
+        pygame.draw.rect(screen, (190, 185, 175), r, border_radius=10)
+        pygame.draw.rect(screen, (95, 85, 75), r, 2, border_radius=10)
+        pygame.draw.rect(screen, (160, 150, 140), (r.x + 14, r.y + 10, r.w - 28, r.h - 20), border_radius=6)
+        for i in range(3):
+            pygame.draw.circle(screen, (240, 235, 225), (r.x + 20 + i * 10, r.y + 16), 2)
 
 
 def draw_house_room():
@@ -2202,7 +2973,14 @@ def draw_house_room():
     draw_player(px_screen, feet_y - player_height)
 
     small = pygame.font.SysFont(None, 22)
-    screen.blit(small.render("ESC leave  ·  B catalog  ·  E / V / Z use nearby", True, (235, 232, 250)), (14, 12))
+    screen.blit(
+        small.render(
+            "ESC leave  ·  B catalog  ·  E / V / Z use  ·  right / middle / Shift+click remove (50% refund)",
+            True,
+            (235, 232, 250),
+        ),
+        (14, 12),
+    )
     if house_notice_timer > 0:
         msg = pygame.font.SysFont(None, 28).render(house_notice_text, True, WHITE)
         rr = msg.get_rect(center=(WINDOW_WIDTH // 2, 64))
@@ -2245,6 +3023,8 @@ def draw_house_room_prompts(keys_list: list):
         "microwave": "Microwave",
         "stove": "Stove",
         "sink": "Sink (water)",
+        "seasoner": "Season food (+35%)",
+        "grill": "Grill",
         "ladder": "Climb loft" if house_player_floor == 0 else "Climb down",
     }
     font = pygame.font.SysFont(None, 24)
@@ -2261,6 +3041,7 @@ def draw_house_room_prompts(keys_list: list):
 
 def draw_house_build_menu():
     """Catalog + expansions; click item then click floor to place (ghost)."""
+    global house_build_scroll
     overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
     overlay.fill((0, 0, 0))
     overlay.set_alpha(165)
@@ -2271,8 +3052,38 @@ def draw_house_build_menu():
     title = pygame.font.SysFont(None, 36).render("Build & expand", True, WHITE)
     screen.blit(title, (panel.x + 22, panel.y + 14))
     body = pygame.font.SysFont(None, 22)
-    y = panel.y + 54
-    y = blit_wrapped(body, "Pick furniture, close with B, then click the floor to place (ghost). ESC cancels pick.", (210, 210, 220), panel.x + 22, y, panel.width - 44, line_gap=2)
+    f_main = pygame.font.SysFont(None, 24)
+    f_lock = pygame.font.SysFont(None, 20)
+    # Scrollable content region
+    content_top = panel.y + 52
+    content_bottom = panel.bottom - 18
+    viewport_h = content_bottom - content_top
+    clip = pygame.Rect(panel.x + 12, content_top, panel.width - 24, viewport_h)
+
+    instr = "Pick furniture, close with B, then click the floor to place (ghost). ESC cancels pick."
+    instr_lines = wrap_text_lines(body, instr, panel.width - 44)
+    instr_h = sum(body.get_height() + 2 for _ in instr_lines)
+    doc_h = instr_h + 10
+    for _kind, sp in HOUSE_FURNITURE.items():
+        lock = ""
+        if sp["chef"] and not has_skill("Master Chef"):
+            lock = "x"
+        elif sp["coffee"] and not mission_coffee_guy_done:
+            lock = "x"
+        row_h = 44 if lock else 40
+        doc_h += row_h + 6
+    doc_h += 10 + 34 + 40 + 8 + 40 + 16
+    max_scroll = max(0, int(doc_h - viewport_h))
+    house_build_scroll = max(0, min(int(house_build_scroll), max_scroll))
+
+    prev = screen.get_clip()
+    screen.set_clip(clip)
+
+    y = content_top - int(house_build_scroll)
+    for ln in instr_lines:
+        surf = body.render(ln, True, (210, 210, 220))
+        screen.blit(surf, (panel.x + 22, y))
+        y += surf.get_height() + 2
     y += 10
     mouse = pygame.mouse.get_pos()
     buttons = []
@@ -2289,10 +3100,8 @@ def draw_house_build_menu():
         pygame.draw.rect(screen, (120, 180, 255), row, 2, border_radius=8)
         price = sp["price"]
         lab_main = f"{kind.title()}  ${price}"
-        f_main = pygame.font.SysFont(None, 24)
         screen.blit(f_main.render(lab_main, True, WHITE), (row.x + 12, row.y + 8))
         if lock:
-            f_lock = pygame.font.SysFont(None, 20)
             screen.blit(f_lock.render(lock.strip(), True, (210, 210, 220)), (row.x + 12, row.y + 26))
         buttons.append((row, kind, lock == ""))
         y += row_h + 6
@@ -2310,6 +3119,8 @@ def draw_house_build_menu():
     pygame.draw.rect(screen, (70, 120, 70) if can2 else (70, 70, 70), r2, border_radius=8)
     screen.blit(body.render(f"Level 2 — loft + ladder  ${HOUSE_EXPAND_L2_COST}", True, WHITE), (r2.x + 10, r2.y + 10))
     buttons.append((r2, "expand2", can2))
+    screen.set_clip(prev)
+
     return buttons
 
 
@@ -2363,7 +3174,7 @@ def house_try_sink_use():
 
 
 def house_run_interaction(kind: str):
-    global microwave_open, stove_open, sleep_cutscene_timer, hotel_notice_timer, hotel_notice_text, house_player_floor
+    global microwave_open, stove_open, grill_open, sleep_cutscene_timer, hotel_notice_timer, hotel_notice_text, house_player_floor
     if kind == "ladder":
         house_player_floor = 1 - int(house_player_floor)
         return
@@ -2379,11 +3190,43 @@ def house_run_interaction(kind: str):
     if kind == "microwave":
         microwave_open = True
         stove_open = False
+        grill_open = False
     elif kind == "stove":
         stove_open = True
         microwave_open = False
+        grill_open = False
+    elif kind == "grill":
+        grill_open = True
+        microwave_open = False
+        stove_open = False
     elif kind == "sink":
         house_try_sink_use()
+    elif kind == "seasoner":
+        if inventory[selected_slot] is None:
+            show_failure_toast("Select a cooked meal to season first.")
+            return
+        it = inventory[selected_slot]["item"]
+        if getattr(it, "item_type", "") != "food" or not getattr(it, "cooked_by_player", False):
+            show_failure_toast("Only cooked meals can be seasoned.")
+            return
+        if getattr(it, "seasoned", False):
+            show_failure_toast("That meal is already seasoned.")
+            return
+        # require seasoning item in inventory (house tool uses one packet)
+        found = None
+        for i in range(MAX_INVENTORY):
+            s = inventory[i]
+            if s and s["item"].name == "Seasoning":
+                found = i
+                break
+        if found is None:
+            show_failure_toast("You need Seasoning from the supermarket.")
+            return
+        remove_one_from_slot(found)
+        it.hunger_restore = int(math.ceil(float(it.hunger_restore) * 1.35))
+        it.seasoned = True
+        it.seasonable = True
+        show_success_toast("Seasoned meal (+35% hunger).")
 
 
 def house_try_place_at_screen_mx(mx_screen: int):
@@ -2824,6 +3667,96 @@ def draw_supermarket_menu():
 
     return buttons, close_rect
 
+
+def draw_seafood_market_menu():
+    """Sell fish from your inventory (1 per click)."""
+    menu_rect = pygame.Rect(WINDOW_WIDTH // 6, WINDOW_HEIGHT // 6, int(WINDOW_WIDTH * 0.66), int(WINDOW_HEIGHT * 0.66))
+    pygame.draw.rect(screen, (235, 248, 252), menu_rect, border_radius=10)
+    pygame.draw.rect(screen, (20, 55, 70), menu_rect, 4, border_radius=10)
+
+    pad = 18
+    title_font = pygame.font.SysFont(None, 48)
+    title = title_font.render("Seafood Market", True, (20, 55, 70))
+    screen.blit(title, (menu_rect.x + pad, menu_rect.y + pad - 4))
+
+    info_font = pygame.font.SysFont(None, 24)
+    info = info_font.render("Click a fish to sell one. Rarer fish are worth more.", True, (70, 80, 85))
+    screen.blit(info, (menu_rect.x + pad, menu_rect.y + pad + 44))
+
+    list_x = menu_rect.x + pad
+    list_y = menu_rect.y + pad + 84
+    list_w = menu_rect.width - pad * 2
+    btn_h = 46
+    btn_gap = 10
+    mouse = pygame.mouse.get_pos()
+    font = pygame.font.SysFont(None, 26)
+
+    buttons = []  # (rect, slot_idx, can)
+    y = list_y
+    any_fish = False
+    for i in range(MAX_INVENTORY):
+        slot = inventory[i]
+        if not slot:
+            continue
+        it = slot["item"]
+        if not getattr(it, "caught_fish", False):
+            continue
+        any_fish = True
+        price = int(getattr(it, "price", 0) or 0)
+        name = it.name
+        count = int(slot.get("count", 1) or 1)
+        rlab, rcol = fish_rarity_label(name)
+
+        rect = pygame.Rect(list_x, y, list_w, btn_h)
+        hover = rect.collidepoint(mouse)
+        pygame.draw.rect(screen, (255, 255, 255) if hover else (248, 252, 255), rect, border_radius=8)
+        pygame.draw.rect(screen, (20, 55, 70), rect, 2, border_radius=8)
+        # rarity badge (right), price (just left of it), then truncated name on the left
+        badge = pygame.Rect(rect.right - 96, rect.y + 8, 84, rect.h - 16)
+        pygame.draw.rect(screen, (245, 250, 255), badge, border_radius=12)
+        pygame.draw.rect(screen, rcol, badge, 2, border_radius=12)
+        rt = pygame.font.SysFont(None, 20).render(rlab, True, rcol)
+        screen.blit(rt, rt.get_rect(center=badge.center))
+        right = font.render(f"+${price}", True, (70, 90, 100))
+        price_x = badge.x - 10 - right.get_width()
+        screen.blit(right, (price_x, rect.y + 12))
+        max_left_w = max(40, price_x - (rect.x + 12) - 10)
+        left_txt = truncate_text(font, f"{name}  x{count}", max_left_w)
+        left = font.render(left_txt, True, (20, 35, 45))
+        screen.blit(left, (rect.x + 12, rect.y + 12))
+        buttons.append((rect, i, True))
+        y += btn_h + btn_gap
+
+    if not any_fish:
+        msg = pygame.font.SysFont(None, 28).render("No fish to sell. Take the ferry to Sun Reef and catch some.", True, (60, 70, 80))
+        screen.blit(msg, msg.get_rect(center=(menu_rect.centerx, menu_rect.centery + 20)))
+
+    close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
+    pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+    close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
+    screen.blit(close_text, close_text.get_rect(center=close_rect.center))
+    return buttons, close_rect
+
+
+def handle_seafood_market_click(pos, buttons, close_rect):
+    global money, seafood_market_open
+    if close_rect.collidepoint(pos):
+        seafood_market_open = False
+        return
+    for rect, slot_idx, can in buttons:
+        if can and rect.collidepoint(pos):
+            slot = inventory[slot_idx]
+            if not slot:
+                return
+            it = slot["item"]
+            if not getattr(it, "caught_fish", False):
+                return
+            price = int(getattr(it, "price", 0) or 0)
+            remove_one_from_slot(slot_idx)
+            money += max(0, price)
+            show_success_toast(f"Sold {it.name} (+${price}).")
+            return
+
 def handle_supermarket_click(pos, buttons, close_rect):
     global money, inventory, xp, money_spent, supermarket_open
     if close_rect.collidepoint(pos):
@@ -2960,6 +3893,91 @@ def draw_stove_menu():
     close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
     screen.blit(close_text, close_text.get_rect(center=close_rect.center))
     return buttons, close_rect
+
+
+def draw_grill_menu():
+    menu_rect = pygame.Rect(
+        WINDOW_WIDTH // 6,
+        WINDOW_HEIGHT // 6,
+        int(WINDOW_WIDTH * 0.66),
+        int(WINDOW_HEIGHT * 0.66),
+    )
+
+    pygame.draw.rect(screen, (245, 232, 210), menu_rect, border_radius=10)
+    pygame.draw.rect(screen, (120, 62, 28), menu_rect, 4, border_radius=10)
+
+    pad = 18
+    title_font = pygame.font.SysFont(None, 48)
+    title = title_font.render("Grill", True, (90, 42, 18))
+    screen.blit(title, (menu_rect.x + pad, menu_rect.y + pad - 4))
+
+    info_font = pygame.font.SysFont(None, 26)
+    info = info_font.render(
+        f"Fee: ${GRILL_FEE} + ingredients · slower than stove ({GRILL_COOK_FRAMES // 60}s vs {STOVE_COOK_FRAMES // 60}s)",
+        True,
+        (70, 55, 45),
+    )
+    screen.blit(info, (menu_rect.x + pad, menu_rect.y + pad + 44))
+    sub = info_font.render("Cheap bites and premium cuts — all on one menu.", True, (95, 80, 68))
+    screen.blit(sub, (menu_rect.x + pad, menu_rect.y + pad + 72))
+
+    list_x = menu_rect.x + pad
+    list_y = menu_rect.y + pad + 108
+    list_w = menu_rect.width - pad * 2
+    btn_h = 48
+    btn_gap = 10
+
+    counts = count_ingredients()
+    buttons = []
+    mouse = pygame.mouse.get_pos()
+    hovered_recipe = None
+    font = pygame.font.SysFont(None, 26)
+
+    y = list_y
+    for recipe in GRILL_RECIPES:
+        req = recipe["ingredients"]
+        ok = all(counts.get(k, 0) >= v for k, v in req.items())
+        price_ok = money >= GRILL_FEE
+        preview = build_cooked_result(recipe, "grill")
+        can = ok and price_ok and inventory_can_accept(preview)
+
+        rect = pygame.Rect(list_x, y, list_w, btn_h)
+        is_hover = rect.collidepoint(mouse)
+        base = (255, 252, 245) if can else (235, 228, 218)
+        if is_hover:
+            base = (255, 248, 235) if can else (225, 218, 208)
+            hovered_recipe = recipe
+        pygame.draw.rect(screen, base, rect, border_radius=8)
+        pygame.draw.rect(screen, (120, 62, 28), rect, 2, border_radius=8)
+
+        name = recipe["name"]
+        req_text = ", ".join([f"{k}x{v}" for k, v in req.items()])
+        left = font.render(name, True, (35, 28, 22))
+        right = font.render(req_text, True, (95, 85, 75))
+        screen.blit(left, (rect.x + 12, rect.y + 12))
+        screen.blit(right, (rect.right - right.get_width() - 12, rect.y + 12))
+
+        buttons.append((rect, recipe, can))
+        y += btn_h + btn_gap
+
+    if hovered_recipe:
+        r = hovered_recipe
+        panel = pygame.Rect(menu_rect.x + pad, menu_rect.bottom - 92, list_w, 72)
+        pygame.draw.rect(screen, (255, 250, 240), panel, border_radius=8)
+        pygame.draw.rect(screen, (140, 110, 90), panel, 2, border_radius=8)
+        small = pygame.font.SysFont(None, 22)
+        result = r["result"]
+        line1 = small.render(f"Result: {result.name}  (+{result.hunger_restore} hunger)", True, (40, 40, 40))
+        line2 = small.render(f"Click to grill (uses ingredients + ${GRILL_FEE})", True, (70, 70, 70))
+        screen.blit(line1, (panel.x + 12, panel.y + 10))
+        screen.blit(line2, (panel.x + 12, panel.y + 38))
+
+    close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
+    pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+    close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
+    screen.blit(close_text, close_text.get_rect(center=close_rect.center))
+    return buttons, close_rect
+
 
 def draw_microwave_menu():
     menu_rect = pygame.Rect(WINDOW_WIDTH//6, WINDOW_HEIGHT//6,
@@ -3491,6 +4509,10 @@ def draw_item_icon(screen, x, y, item_name):
         pygame.draw.rect(screen, (70, 190, 120), (x + 7, y + 14, 26, 18), border_radius=4)
         pygame.draw.rect(screen, (20, 90, 50), (x + 7, y + 14, 26, 18), 2, border_radius=4)
         pygame.draw.circle(screen, (220, 255, 230), (x + 20, y + 23), 5)
+    elif item_name in {row[0] for row in FISH_CATCH_TABLE}:
+        pygame.draw.polygon(screen, (120, 170, 220), [(x + 8, y + 28), (x + 32, y + 18), (x + 28, y + 12)])
+        pygame.draw.polygon(screen, (80, 130, 190), [(x + 8, y + 28), (x + 32, y + 18), (x + 28, y + 12)], 2)
+        pygame.draw.circle(screen, (40, 40, 50), (x + 22, y + 18), 2)
     else:
         # Generic plate (unlisted cooked meals)
         pygame.draw.ellipse(screen, (250, 245, 235), (x + 4, y + 12, 32, 22))
@@ -3573,6 +4595,18 @@ def get_interaction_label():
         return "Bakery"
     if house.check_collision(player_x, player_width):
         return "Your House"
+    if (
+        seafood_market.check_collision(player_x, player_width)
+        and (not on_fishing_island)
+        and ferry_anim_timer <= 0
+    ):
+        return "Seafood Market"
+    if (
+        ferry_dock.check_collision(player_x, player_width)
+        and (not on_fishing_island)
+        and ferry_anim_timer <= 0
+    ):
+        return "Ferry — Sun Reef"
     return "interact"
 
 
@@ -3586,6 +4620,8 @@ WORLD_INTERACTION_LABELS = {
     "arcade": "Arcade",
     "clothing": "Clothing",
     "bakery": "Bakery",
+    "ferry": "Ferry — Sun Reef",
+    "seafood": "Seafood Market",
 }
 
 
@@ -3608,13 +4644,16 @@ def get_world_interaction_stack():
     add(arcade_shop, "arcade")
     add(clothing_shop, "clothing")
     add(shop, "bakery")
+    if ferry_anim_timer <= 0 and (not on_fishing_island):
+        add(ferry_dock, "ferry")
+        add(seafood_market, "seafood")
     opts.sort(key=lambda t: t[0])
     return [c for _, c in opts]
 
 
 def apply_world_interaction_code(code: str):
     global mission_center_open, restaurant_open, bistro_chef_dropdown_chef_idx, restaurant_menu_scroll, restaurant_upgrades_scroll, restaurant_menu_tab
-    global hotel_lobby_open, house_lobby_open, supermarket_open, shop_open, clothing_shop_open, arcade_shop_open, cafe_open
+    global hotel_lobby_open, house_lobby_open, supermarket_open, shop_open, clothing_shop_open, arcade_shop_open, cafe_open, seafood_market_open
     if code == "missions":
         mission_center_open = not mission_center_open
         if mission_center_open:
@@ -3669,6 +4708,10 @@ def apply_world_interaction_code(code: str):
         mission_center_open = False
     elif code == "supermarket":
         supermarket_open = not supermarket_open
+    elif code == "ferry":
+        try_board_ferry_to_island()
+    elif code == "seafood":
+        seafood_market_open = not seafood_market_open
 
 
 def draw_world_interaction_prompts(codes: list):
@@ -4026,7 +5069,7 @@ def draw_restaurant_upgrades_panel(menu_rect, tab_bottom_y, inner_w, title_font,
         (
             "better_quality",
             "Better Quality",
-            "Patrons spawn on their own to visit you, about 5–20 per minute (daytime only).",
+            "Patrons spawn faster (about 23 per 2 minutes instead of 20 per 2.5 minutes).",
             BISTRO_UPGRADE_COST_BETTER_QUALITY,
             bistro_upgrade_better_quality,
         ),
@@ -4036,6 +5079,13 @@ def draw_restaurant_upgrades_panel(menu_rect, tab_bottom_y, inner_w, title_font,
             "Customers are more likely to order extra plates in one visit.",
             BISTRO_UPGRADE_COST_DELICIOUS_SMELL,
             bistro_upgrade_delicious_smell,
+        ),
+        (
+            "auto_season",
+            "Seasoning Station",
+            "Runners keep seasoning stocked and chefs auto-season dishes to boost their sale value by +50%.",
+            BISTRO_UPGRADE_COST_AUTO_SEASON,
+            bistro_upgrade_auto_seasoning,
         ),
     ]
     for key, bt, desc, price, owned in boost_rows:
@@ -4297,7 +5347,7 @@ def draw_restaurant_menu():
 def handle_restaurant_click(pos, buttons, repair_rect, close_rect):
     global money, money_spent, restaurant_repaired, restaurant_business_open, restaurant_menu_scroll
     global restaurant_menu_tab, bistro_chefs, bistro_restockers, bistro_chef_dropdown_chef_idx
-    global bistro_upgrade_advanced_advertising, bistro_upgrade_better_quality, bistro_upgrade_delicious_smell
+    global bistro_upgrade_advanced_advertising, bistro_upgrade_better_quality, bistro_upgrade_delicious_smell, bistro_upgrade_auto_seasoning
     global bistro_seeker_spawn_timer
     global bistro_stats_spent
     global restaurant_tier
@@ -4431,6 +5481,19 @@ def handle_restaurant_click(pos, buttons, repair_rect, close_rect):
                 bistro_stats_spent += cost
                 bistro_upgrade_delicious_smell = True
                 show_success_toast("Delicious Smell — guests order extra plates more often.")
+            elif key == "auto_season":
+                if bistro_upgrade_auto_seasoning:
+                    show_failure_toast("You already have Seasoning Station.")
+                    return
+                cost = BISTRO_UPGRADE_COST_AUTO_SEASON
+                if money < cost:
+                    show_failure_toast(f"You need ${cost}.")
+                    return
+                money -= cost
+                money_spent += cost
+                bistro_stats_spent += cost
+                bistro_upgrade_auto_seasoning = True
+                show_success_toast("Seasoning Station — chefs season dishes for +50% value.")
             bistro_chef_dropdown_chef_idx = None
             return
         if tup[0] == "chef_dd_pick" and len(tup) >= 4 and tup[3].collidepoint(pos):
@@ -4527,6 +5590,8 @@ cafe = Cafe()  # Initialize cafe
 supermarket = Supermarket()  # Initialize supermarket
 hotel = Hotel()  # Initialize hotel
 house = House()
+ferry_dock = FerryDock()
+seafood_market = SeafoodMarket()
 restaurant = Restaurant()
 sync_restaurant_building_geometry()
 benches = [
@@ -4767,8 +5832,8 @@ def make_cash_drop(amount: int) -> ShopItem:
 def handle_player_death():
     """Drop all inventory + some cash, then respawn."""
     global health, hunger, stamina, money, player_x, player_y, player_velocity, player_vx
-    global inventory, selected_slot, in_hotel_room, in_house_room, microwave_open, stove_open, house_build_menu_open, house_place_pick
-    global show_pickup_prompt, current_droppable
+    global inventory, selected_slot, in_hotel_room, in_house_room, microwave_open, stove_open, grill_open, house_build_menu_open, house_place_pick
+    global show_pickup_prompt, current_droppable, on_fishing_island, ferry_anim_timer
 
     # Drop inventory stacks as individual items (cloned by try_add on pickup)
     for slot in inventory:
@@ -4792,8 +5857,12 @@ def handle_player_death():
     in_house_room = False
     microwave_open = False
     stove_open = False
+    grill_open = False
     house_build_menu_open = False
     house_place_pick = None
+    on_fishing_island = False
+    ferry_anim_timer = 0
+    _fish_reset_minigame()
     current_droppable = None
     show_pickup_prompt = False
 
@@ -5297,7 +6366,16 @@ def _bistro_seeker_count():
 
 
 def _bistro_seeker_spawn_interval():
-    return random.randint(BISTRO_SEEKER_SPAWN_MIN_FRAMES, BISTRO_SEEKER_SPAWN_MAX_FRAMES)
+    # Requested spawn pacing:
+    # - Base: ~20 patrons / 150s => 7.5s avg
+    # - Better Quality: ~23 patrons / 120s => 5.22s avg
+    if bistro_upgrade_better_quality:
+        lo = int(60 * 4.6)
+        hi = int(60 * 6.2)
+    else:
+        lo = int(60 * 6.6)
+        hi = int(60 * 8.8)
+    return random.randint(lo, hi)
 
 
 # Add this function to manage NPC spawning
@@ -5334,7 +6412,8 @@ def manage_npcs(player_x):
         spawn_x = left_spawn if random.random() < 0.5 else right_spawn
         npcs.append(NPC(spawn_x))
 
-    if bistro_upgrade_better_quality and restaurant_repaired and restaurant_business_open and not is_night:
+    # Bistro patrons: always spawn while repaired+open during daytime.
+    if restaurant_repaired and restaurant_business_open and not is_night:
         bistro_seeker_spawn_timer -= 1
         if bistro_seeker_spawn_timer <= 0:
             bistro_seeker_spawn_timer = _bistro_seeker_spawn_interval()
@@ -5507,12 +6586,32 @@ def draw_stamina_bar():
     
     # Fade out when in shop/game
     # Keep stamina visible in cafe (you're buying a stamina buff)
-    if (shop_open or clothing_shop_open or arcade_shop_open or supermarket_open or hotel_lobby_open or house_lobby_open or mission_center_open or
-        restaurant_open or
-        SETTINGS_OPEN or achievements_open or skill_tree_open or arcade_shop.any_arcade_playing() or
-        in_hotel_room or microwave_open or stove_open or sleep_cutscene_timer > 0
-        or house_lobby_open or house_build_menu_open):
-        STAMINA_BAR_ALPHA = max(0, STAMINA_BAR_ALPHA - FADE_SPEED)
+    hide_now = (
+        shop_open
+        or clothing_shop_open
+        or arcade_shop_open
+        or supermarket_open
+        or seafood_market_open
+        or hotel_lobby_open
+        or house_lobby_open
+        or mission_center_open
+        or restaurant_open
+        or SETTINGS_OPEN
+        or achievements_open
+        or skill_tree_open
+        or arcade_shop.any_arcade_playing()
+        or in_hotel_room
+        or microwave_open
+        or stove_open
+        or grill_open
+        or sleep_cutscene_timer > 0
+        or house_build_menu_open
+        or on_fishing_island
+        or ferry_anim_timer > 0
+    )
+    if hide_now:
+        # These UIs feel cleaner with stamina fully hidden (no half-fade linger).
+        STAMINA_BAR_ALPHA = 0
     else:
         STAMINA_BAR_ALPHA = min(255, STAMINA_BAR_ALPHA + FADE_SPEED)
     
@@ -5790,10 +6889,13 @@ def should_hide_objective_card():
         or in_house_room
         or microwave_open
         or stove_open
+        or grill_open
         or sleep_cutscene_timer > 0
         or arcade_shop.any_arcade_playing()
         or house_lobby_open
         or house_build_menu_open
+        or on_fishing_island
+        or ferry_anim_timer > 0
     )
 
 
@@ -7058,10 +8160,10 @@ def draw_skill_tree_menu():
 
 while running:
     keys = pygame.key.get_pressed()  # Get keyboard state once at start of loop
-    paused = (shop_open or clothing_shop_open or arcade_shop_open or supermarket_open or hotel_lobby_open or
+    paused = (shop_open or clothing_shop_open or arcade_shop_open or supermarket_open or seafood_market_open or hotel_lobby_open or
               house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open or
-              arcade_shop.any_arcade_playing() or cafe_open or in_hotel_room or in_house_room or microwave_open or stove_open or
-              sleep_cutscene_timer > 0 or house_build_menu_open)
+              arcade_shop.any_arcade_playing() or cafe_open or in_hotel_room or in_house_room or microwave_open or stove_open or grill_open or
+              sleep_cutscene_timer > 0 or house_build_menu_open or on_fishing_island or ferry_anim_timer > 0)
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -7090,6 +8192,8 @@ while running:
                 achievements_scroll = max(0, achievements_scroll - event.y * 12)
             elif mission_center_open:
                 mission_scroll = max(0, mission_scroll - event.y * 12)
+            elif in_house_room and house_build_menu_open:
+                house_build_scroll = max(0, house_build_scroll - event.y * 18)
             elif restaurant_open and restaurant_repaired:
                 if restaurant_menu_tab == "upgrades":
                     restaurant_upgrades_scroll = max(0, restaurant_upgrades_scroll - event.y * 14)
@@ -7110,6 +8214,9 @@ while running:
                 or skill_tree_open
                 or microwave_open
                 or stove_open
+                or grill_open
+                or on_fishing_island
+                or ferry_anim_timer > 0
                 or arcade_shop.any_arcade_playing()
             ):
                 # Inventory slot cycle (world or hotel room; matches 1–5 keys)
@@ -7217,24 +8324,50 @@ while running:
                             house_place_pick = None
                         elif house_build_menu_open:
                             house_build_menu_open = False
+                        elif microwave_open or stove_open or grill_open:
+                            microwave_open = False
+                            stove_open = False
+                            grill_open = False
                         else:
                             in_house_room = False
                             microwave_open = False
                             stove_open = False
+                            grill_open = False
                             sleep_cutscene_timer = 0
                             house_build_menu_open = False
                         continue
-                    if event.key == pygame.K_b and (not microwave_open) and (not stove_open):
+                    if event.key == pygame.K_b and (not microwave_open) and (not stove_open) and (not grill_open):
                         house_build_menu_open = not house_build_menu_open
                         continue
-                    if event.key in (pygame.K_e, pygame.K_v, pygame.K_z) and (not microwave_open) and (not stove_open) and (not house_build_menu_open):
+                    if event.key in (pygame.K_e, pygame.K_v, pygame.K_z) and (not microwave_open) and (not stove_open) and (not grill_open) and (not house_build_menu_open):
                         acts = house_near_interaction_kinds()
                         idx = {pygame.K_e: 0, pygame.K_v: 1, pygame.K_z: 2}[event.key]
                         if idx < len(acts):
                             house_run_interaction(acts[idx])
                         continue
-                    if event.key == pygame.K_m and (not stove_open):
+                    if event.key == pygame.K_m:
                         microwave_open = not microwave_open
+                        if microwave_open:
+                            stove_open = False
+                            grill_open = False
+                        continue
+                elif on_fishing_island and ferry_anim_timer <= 0:
+                    if event.key == pygame.K_ESCAPE:
+                        if fish_phase != "idle":
+                            _fish_reset_minigame()
+                        elif island_near_ferry():
+                            try_board_ferry_to_city()
+                        continue
+                    if event.key == pygame.K_e and fish_phase == "idle" and island_near_ferry():
+                        try_board_ferry_to_city()
+                        continue
+                    if (
+                        event.key == pygame.K_f
+                        and fish_phase == "idle"
+                        and island_in_fishing_zone()
+                        and (not island_near_ferry())
+                    ):
+                        fishing_try_begin_cast()
                         continue
                 elif in_hotel_room:
                     if event.key == pygame.K_ESCAPE:
@@ -7269,14 +8402,25 @@ while running:
                                 show_failure_toast("Too early to sleep — wait for sunset or night.")
                         continue
                 if event.key == pygame.K_SPACE:
-                    # Jump buffer (movement feel): press slightly early and still jump on landing
-                    if not (shop_open or clothing_shop_open or arcade_shop_open or restaurant_open or house_lobby_open):
+                    if on_fishing_island and ferry_anim_timer <= 0:
+                        fishing_on_space_key()
+                    elif not (
+                        shop_open
+                        or clothing_shop_open
+                        or arcade_shop_open
+                        or restaurant_open
+                        or house_lobby_open
+                    ):
+                        # Jump buffer (movement feel): press slightly early and still jump on landing
                         jump_buffer_timer = JUMP_BUFFER_FRAMES
                 elif event.key in (pygame.K_e, pygame.K_v, pygame.K_z):
-                    st = get_world_interaction_stack()
-                    idx = {pygame.K_e: 0, pygame.K_v: 1, pygame.K_z: 2}[event.key]
-                    if idx < len(st):
-                        apply_world_interaction_code(st[idx])
+                    if on_fishing_island or ferry_anim_timer > 0:
+                        pass
+                    else:
+                        st = get_world_interaction_stack()
+                        idx = {pygame.K_e: 0, pygame.K_v: 1, pygame.K_z: 2}[event.key]
+                        if idx < len(st):
+                            apply_world_interaction_code(st[idx])
                 elif event.key == pygame.K_p:
                     if current_droppable:
                         it = current_droppable.item
@@ -7292,7 +8436,7 @@ while running:
                         else:
                             show_failure_toast("Inventory full — drop something first.")
                 elif event.key == pygame.K_q:
-                    if inventory[selected_slot] is not None:
+                    if (not on_fishing_island) and inventory[selected_slot] is not None:
                         it = remove_one_from_slot(selected_slot)
                         dropped_items.append(DroppedItem(it, player_x, player_y))
                 elif event.key == pygame.K_1:
@@ -7306,33 +8450,34 @@ while running:
                 elif event.key == pygame.K_5:
                     selected_slot = 4
                 elif event.key == pygame.K_t:
-                    # Bistro runners (uniform NPCs) — talk first if in range
-                    rw_talked = False
-                    for w in restocker_workers:
-                        if restaurant_repaired and w.check_player_collision(player_x, player_width):
-                            w.start_custom_dialog(
-                                random.choice(
-                                    [
-                                        "'sup boss",
-                                        "Market run's looking smooth.",
-                                        "I'll keep the pantry fed.",
-                                        "Say the word if you need extras.",
-                                    ]
+                    if not on_fishing_island and ferry_anim_timer <= 0:
+                        # Bistro runners (uniform NPCs) — talk first if in range
+                        rw_talked = False
+                        for w in restocker_workers:
+                            if restaurant_repaired and w.check_player_collision(player_x, player_width):
+                                w.start_custom_dialog(
+                                    random.choice(
+                                        [
+                                            "'sup boss",
+                                            "Market run's looking smooth.",
+                                            "I'll keep the pantry fed.",
+                                            "Say the word if you need extras.",
+                                        ]
+                                    )
                                 )
-                            )
-                            rw_talked = True
-                            break
-                    if not rw_talked:
-                        for npc in npcs:
-                            if npc.can_talk and not npc.in_shop:
-                                npc.start_dialog()
-                                notify_chain_npc_interaction()
-                                npcs_talked += 1
-                                if npcs_talked >= achievements["Social Butterfly"]["requirement"]:
-                                    unlock_achievement("Social Butterfly")
-                                if npcs_talked >= achievements["Town Gossip"]["requirement"]:
-                                    unlock_achievement("Town Gossip")
+                                rw_talked = True
                                 break
+                        if not rw_talked:
+                            for npc in npcs:
+                                if npc.can_talk and not npc.in_shop:
+                                    npc.start_dialog()
+                                    notify_chain_npc_interaction()
+                                    npcs_talked += 1
+                                    if npcs_talked >= achievements["Social Butterfly"]["requirement"]:
+                                        unlock_achievement("Social Butterfly")
+                                    if npcs_talked >= achievements["Town Gossip"]["requirement"]:
+                                        unlock_achievement("Town Gossip")
+                                    break
                 elif event.key == pygame.K_r:
                     # Sell cooked food to a nearby NPC if Sociality skill is unlocked
                     if not has_skill("Sociality"):
@@ -7377,6 +8522,8 @@ while running:
                         cafe_open = False
                     elif supermarket_open:
                         supermarket_open = False
+                    elif seafood_market_open:
+                        seafood_market_open = False
                     elif hotel_lobby_open:
                         hotel_lobby_open = False
                     elif house_lobby_open:
@@ -7391,47 +8538,70 @@ while running:
                         SETTINGS_OPEN = not SETTINGS_OPEN
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Left click
-                    if microwave_open:
-                        buttons, close_rect = draw_microwave_menu()
-                        if close_rect.collidepoint(event.pos):
-                            microwave_open = False
-                        else:
-                            for rect, recipe, can in buttons:
-                                if can and rect.collidepoint(event.pos):
-                                    if cooking_in_progress:
-                                        show_failure_toast("Already cooking.")
-                                    elif not inventory_can_accept(build_cooked_result(recipe, "microwave")):
-                                        show_failure_toast("Inventory full.")
-                                    elif start_cooking(recipe, "microwave"):
-                                        microwave_open = False
-                    elif stove_open:
-                        buttons, close_rect = draw_stove_menu()
-                        if close_rect.collidepoint(event.pos):
-                            stove_open = False
-                        else:
-                            for rect, recipe, can in buttons:
-                                if can and rect.collidepoint(event.pos):
-                                    if cooking_in_progress:
-                                        show_failure_toast("Already cooking.")
-                                    elif not inventory_can_accept(build_cooked_result(recipe, "stove")):
-                                        show_failure_toast("Inventory full.")
-                                    elif start_cooking(recipe, "stove"):
-                                        stove_open = False
-                    elif in_house_room:
-                        if house_build_menu_open:
-                            b2 = draw_house_build_menu()
-                            handle_house_build_click(event.pos, b2)
-                        elif house_place_pick:
-                            house_try_place_at_screen_mx(event.pos[0])
-                elif event.button == 3:  # Right click
-                    if in_house_room and (not house_build_menu_open) and (not microwave_open) and (not stove_open) and (not house_place_pick):
-                        house_try_delete_at_screen_pos(event.pos)
-                    elif in_hotel_room:
-                        # clicks do nothing in room for now
-                        pass
+                if in_house_room and (not on_fishing_island) and (not house_build_menu_open) and (not microwave_open) and (not stove_open) and (not grill_open) and (not house_place_pick):
+                    if event.button in (2, 3) or (
+                        event.button == 1 and (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT])
+                    ):
+                        if house_try_delete_at_screen_pos(event.pos):
+                            continue
+
+                if event.button == 3:
+                    continue
+
+                if event.button != 1:
+                    continue
+
+                # Left click
+                if microwave_open:
+                    buttons, close_rect = draw_microwave_menu()
+                    if close_rect.collidepoint(event.pos):
+                        microwave_open = False
                     else:
-                        if mission_center_open:
+                        for rect, recipe, can in buttons:
+                            if can and rect.collidepoint(event.pos):
+                                if cooking_in_progress:
+                                    show_failure_toast("Already cooking.")
+                                elif not inventory_can_accept(build_cooked_result(recipe, "microwave")):
+                                    show_failure_toast("Inventory full.")
+                                elif start_cooking(recipe, "microwave"):
+                                    microwave_open = False
+                elif stove_open:
+                    buttons, close_rect = draw_stove_menu()
+                    if close_rect.collidepoint(event.pos):
+                        stove_open = False
+                    else:
+                        for rect, recipe, can in buttons:
+                            if can and rect.collidepoint(event.pos):
+                                if cooking_in_progress:
+                                    show_failure_toast("Already cooking.")
+                                elif not inventory_can_accept(build_cooked_result(recipe, "stove")):
+                                    show_failure_toast("Inventory full.")
+                                elif start_cooking(recipe, "stove"):
+                                    stove_open = False
+                elif grill_open:
+                    buttons, close_rect = draw_grill_menu()
+                    if close_rect.collidepoint(event.pos):
+                        grill_open = False
+                    else:
+                        for rect, recipe, can in buttons:
+                            if can and rect.collidepoint(event.pos):
+                                if cooking_in_progress:
+                                    show_failure_toast("Already cooking.")
+                                elif not inventory_can_accept(build_cooked_result(recipe, "grill")):
+                                    show_failure_toast("Inventory full.")
+                                elif start_cooking(recipe, "grill"):
+                                    grill_open = False
+                elif in_house_room:
+                    if house_build_menu_open:
+                        b2 = draw_house_build_menu()
+                        handle_house_build_click(event.pos, b2)
+                    elif house_place_pick:
+                        house_try_place_at_screen_mx(event.pos[0])
+                elif in_hotel_room:
+                    # clicks do nothing in room for now
+                    pass
+                else:
+                    if mission_center_open:
                             buttons, close_rect = mission_center.draw_menu()
                             if close_rect.collidepoint(event.pos):
                                 mission_center_open = False
@@ -7446,98 +8616,101 @@ while running:
                                             else:
                                                 mission_center.active_missions.append(mission)
                                                 init_chain_mission(mission)
-                        elif shop_open:
-                            buttons, close_rect = draw_shop_menu()
-                            handle_shop_click(event.pos, buttons, close_rect)
-                        elif clothing_shop_open:
-                            buttons, close_rect = draw_clothing_shop_menu()
-                            clothing_shop_open = handle_clothing_shop_click(event.pos, buttons, close_rect)
-                        elif arcade_shop_open:
-                            buttons, close_rect = draw_arcade_menu()
-                            handle_arcade_shop_click(event.pos, buttons, close_rect)
-                        elif cafe_open:
-                            buttons, close_rect = draw_cafe_menu()
-                            handle_cafe_click(event.pos, buttons, close_rect)
-                        elif supermarket_open:
-                            buttons, close_rect = draw_supermarket_menu()
-                            handle_supermarket_click(event.pos, buttons, close_rect)
-                        elif restaurant_open:
-                            buttons, repair_rect, close_rect = draw_restaurant_menu()
-                            r = handle_restaurant_click(event.pos, buttons, repair_rect, close_rect)
-                            if r == "close":
-                                restaurant_open = False
-                        elif hotel_lobby_open:
-                            enter_rect, close_rect = draw_hotel_lobby_menu()
-                            if close_rect.collidepoint(event.pos):
+                    elif shop_open:
+                        buttons, close_rect = draw_shop_menu()
+                        handle_shop_click(event.pos, buttons, close_rect)
+                    elif clothing_shop_open:
+                        buttons, close_rect = draw_clothing_shop_menu()
+                        clothing_shop_open = handle_clothing_shop_click(event.pos, buttons, close_rect)
+                    elif arcade_shop_open:
+                        buttons, close_rect = draw_arcade_menu()
+                        handle_arcade_shop_click(event.pos, buttons, close_rect)
+                    elif cafe_open:
+                        buttons, close_rect = draw_cafe_menu()
+                        handle_cafe_click(event.pos, buttons, close_rect)
+                    elif supermarket_open:
+                        buttons, close_rect = draw_supermarket_menu()
+                        handle_supermarket_click(event.pos, buttons, close_rect)
+                    elif seafood_market_open:
+                        buttons, close_rect = draw_seafood_market_menu()
+                        handle_seafood_market_click(event.pos, buttons, close_rect)
+                    elif restaurant_open:
+                        buttons, repair_rect, close_rect = draw_restaurant_menu()
+                        r = handle_restaurant_click(event.pos, buttons, repair_rect, close_rect)
+                        if r == "close":
+                            restaurant_open = False
+                    elif hotel_lobby_open:
+                        enter_rect, close_rect = draw_hotel_lobby_menu()
+                        if close_rect.collidepoint(event.pos):
+                            hotel_lobby_open = False
+                        elif enter_rect.collidepoint(event.pos):
+                            if hotel_room_owned:
                                 hotel_lobby_open = False
-                            elif enter_rect.collidepoint(event.pos):
-                                if hotel_room_owned:
+                                in_hotel_room = True
+                            else:
+                                if money >= 100:
+                                    money -= 100
+                                    hotel_room_owned = True
                                     hotel_lobby_open = False
                                     in_hotel_room = True
                                 else:
-                                    if money >= 100:
-                                        money -= 100
-                                        hotel_room_owned = True
-                                        hotel_lobby_open = False
-                                        in_hotel_room = True
-                                    else:
-                                        show_failure_toast("Not enough money for a room ($100).")
-                        elif house_lobby_open:
-                            enter_rect, close_rect = draw_house_lobby_menu()
-                            if close_rect.collidepoint(event.pos):
+                                    show_failure_toast("Not enough money for a room ($100).")
+                    elif house_lobby_open:
+                        enter_rect, close_rect = draw_house_lobby_menu()
+                        if close_rect.collidepoint(event.pos):
+                            house_lobby_open = False
+                        elif enter_rect.collidepoint(event.pos):
+                            if house_owned:
                                 house_lobby_open = False
-                            elif enter_rect.collidepoint(event.pos):
-                                if house_owned:
+                                in_house_room = True
+                                house_clamp_player()
+                                house_update_camera()
+                            else:
+                                if money >= HOUSE_PURCHASE_COST:
+                                    money -= HOUSE_PURCHASE_COST
+                                    house_owned = True
                                     house_lobby_open = False
                                     in_house_room = True
+                                    house_player_x = house_interior_width() * 0.45
                                     house_clamp_player()
                                     house_update_camera()
+                                    show_success_toast("You own the house — press B inside to furnish it.")
                                 else:
-                                    if money >= HOUSE_PURCHASE_COST:
-                                        money -= HOUSE_PURCHASE_COST
-                                        house_owned = True
-                                        house_lobby_open = False
-                                        in_house_room = True
-                                        house_player_x = house_interior_width() * 0.45
-                                        house_clamp_player()
-                                        house_update_camera()
-                                        show_success_toast("You own the house — press B inside to furnish it.")
-                                    else:
-                                        show_failure_toast(f"Need ${HOUSE_PURCHASE_COST} for the deed.")
-                        elif SETTINGS_OPEN:
-                            buttons = draw_settings_menu()
-                            for button, text in buttons:
-                                if button.collidepoint(event.pos):
-                                    if text == "Continue":
-                                        SETTINGS_OPEN = False
-                                    elif text.startswith("Fullscreen:"):
-                                        set_fullscreen(not FULLSCREEN_ENABLED)
-                                    elif text.startswith("Particles:"):
-                                        # toggle particle system
-                                        globals()["ENABLE_PARTICLES"] = not ENABLE_PARTICLES
-                                    elif text == "Achievements":
-                                        achievements_open = True
-                                        SETTINGS_OPEN = False
-                                    elif text == "Skill Tree":
-                                        skill_tree_open = True
-                                        SETTINGS_OPEN = False
-                                    elif text == "Quit":
-                                        running = False
-                        elif achievements_open:
-                            back_rect = draw_achievements_menu()
-                            if back_rect.collidepoint(event.pos):
-                                achievements_open = False
-                                SETTINGS_OPEN = True
-                        elif skill_tree_open:
-                            nodes, back_rect = draw_skill_tree_menu()
-                            if back_rect.collidepoint(event.pos):
-                                skill_tree_open = False
-                                SETTINGS_OPEN = True
-                            else:
-                                for name, rect in nodes.items():
-                                    if rect.collidepoint(event.pos):
-                                        if not unlock_skill(name):
-                                            show_failure_toast("Can't unlock that skill yet.")
+                                    show_failure_toast(f"Need ${HOUSE_PURCHASE_COST} for the deed.")
+                    elif SETTINGS_OPEN:
+                        buttons = draw_settings_menu()
+                        for button, text in buttons:
+                            if button.collidepoint(event.pos):
+                                if text == "Continue":
+                                    SETTINGS_OPEN = False
+                                elif text.startswith("Fullscreen:"):
+                                    set_fullscreen(not FULLSCREEN_ENABLED)
+                                elif text.startswith("Particles:"):
+                                    # toggle particle system
+                                    globals()["ENABLE_PARTICLES"] = not ENABLE_PARTICLES
+                                elif text == "Achievements":
+                                    achievements_open = True
+                                    SETTINGS_OPEN = False
+                                elif text == "Skill Tree":
+                                    skill_tree_open = True
+                                    SETTINGS_OPEN = False
+                                elif text == "Quit":
+                                    running = False
+                    elif achievements_open:
+                        back_rect = draw_achievements_menu()
+                        if back_rect.collidepoint(event.pos):
+                            achievements_open = False
+                            SETTINGS_OPEN = True
+                    elif skill_tree_open:
+                        nodes, back_rect = draw_skill_tree_menu()
+                        if back_rect.collidepoint(event.pos):
+                            skill_tree_open = False
+                            SETTINGS_OPEN = True
+                        else:
+                            for name, rect in nodes.items():
+                                if rect.collidepoint(event.pos):
+                                    if not unlock_skill(name):
+                                        show_failure_toast("Can't unlock that skill yet.")
                 # Mouse wheel scroll for achievements menu (pygame MOUSEBUTTONDOWN 4/5)
                 if achievements_open:
                     if event.button == 4:
@@ -7557,21 +8730,32 @@ while running:
                            abs(npc.y - event.pos[1]) < 50:
                             npc.start_dialog()
 
+    update_ferry_animation_tick()
+    if on_fishing_island and ferry_anim_timer <= 0:
+        update_fishing_minigame(keys)
+
     # Room movement (hotel interior)
-    if in_hotel_room and sleep_cutscene_timer <= 0 and (not microwave_open) and (not stove_open):
+    if in_hotel_room and sleep_cutscene_timer <= 0 and (not microwave_open) and (not stove_open) and (not grill_open):
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             room_player_x -= ROOM_PLAYER_SPEED
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             room_player_x += ROOM_PLAYER_SPEED
 
     # House interior movement + camera
-    if in_house_room and sleep_cutscene_timer <= 0 and (not microwave_open) and (not stove_open) and (not house_build_menu_open):
+    if in_house_room and sleep_cutscene_timer <= 0 and (not microwave_open) and (not stove_open) and (not grill_open) and (not house_build_menu_open):
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             house_player_x -= ROOM_PLAYER_SPEED
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             house_player_x += ROOM_PLAYER_SPEED
         house_clamp_player()
         house_update_camera()
+
+    if on_fishing_island and ferry_anim_timer <= 0 and fish_phase == "idle":
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            island_player_x -= ROOM_PLAYER_SPEED
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            island_player_x += ROOM_PLAYER_SPEED
+        island_player_x = max(44.0, min(float(WINDOW_WIDTH - 84), island_player_x))
 
     # Player movement (only if not paused)
     if not paused:
@@ -7702,7 +8886,11 @@ while running:
             )
 
     # Eating mechanics (world pauses with menus; hotel / home interior still allow eating unless cooking UI is open)
-    _eat_room = (in_hotel_room or in_house_room) and (not microwave_open) and (not stove_open) and (not house_build_menu_open)
+    _eat_room = (
+        in_hotel_room
+        or in_house_room
+        or (on_fishing_island and ferry_anim_timer <= 0)
+    ) and (not microwave_open) and (not stove_open) and (not grill_open) and (not house_build_menu_open)
     if (not paused) or _eat_room:
         keys = pygame.key.get_pressed()
         if keys[pygame.K_f] and inventory[selected_slot] is not None:
@@ -7753,7 +8941,7 @@ while running:
                         microwave_meals += 1
                         if microwave_meals >= achievements["Microwave Wizard"]["requirement"]:
                             unlock_achievement("Microwave Wizard")
-                    elif cooking_pending_source == "stove":
+                    elif cooking_pending_source in ("stove", "grill"):
                         stove_meals += 1
                         if stove_meals >= achievements["Stove Supreme"]["requirement"]:
                             unlock_achievement("Stove Supreme")
@@ -7820,8 +9008,32 @@ while running:
         update_day_night_cycle()
         update_weather()
 
+    # Ferry crossing cinematic
+    if ferry_anim_timer > 0:
+        draw_ferry_crossing_cinematic()
+        draw_status_bars()
+    # Sun Reef island (fishing)
+    elif on_fishing_island:
+        draw_fishing_island_scene()
+        draw_status_bars()
+        if fish_phase == "idle":
+            draw_inventory()
+        hf = pygame.font.SysFont(None, 22)
+        if fish_phase == "idle":
+            hint_y = WINDOW_HEIGHT - 92  # sit above inventory hotbar
+            if island_near_ferry():
+                t = hf.render("E: Board ferry · return to city (free)", True, (255, 252, 245))
+                screen.blit(t, t.get_rect(center=(WINDOW_WIDTH // 2, hint_y)))
+            elif island_in_fishing_zone():
+                t = hf.render("F: Cast line · ESC cancel · A/D reel when hooked", True, (255, 252, 245))
+                screen.blit(t, t.get_rect(center=(WINDOW_WIDTH // 2, hint_y)))
+            else:
+                t = hf.render("Walk the beach toward the rocks — or E at the ferry", True, (255, 250, 240))
+                screen.blit(t, t.get_rect(center=(WINDOW_WIDTH // 2, hint_y)))
+        if is_eating:
+            draw_eating_progress()
     # House interior (player-owned)
-    if in_house_room:
+    elif in_house_room:
         draw_house_room()
         if house_build_menu_open:
             draw_house_build_menu()
@@ -7841,6 +9053,12 @@ while running:
             overlay.set_alpha(128)
             screen.blit(overlay, (0, 0))
             draw_stove_menu()
+        if grill_open:
+            overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+            overlay.fill((0, 0, 0))
+            overlay.set_alpha(128)
+            screen.blit(overlay, (0, 0))
+            draw_grill_menu()
         if sleep_cutscene_timer > 0:
             sleep_cutscene_timer -= 1
             if sleep_cutscene_timer == 1:
@@ -7848,7 +9066,7 @@ while running:
                 health = min(MAX_HEALTH, health + 20)
                 hunger = min(MAX_HUNGER, hunger + 20)
             draw_sleep_cutscene()
-        if (not microwave_open) and (not stove_open) and (not house_build_menu_open):
+        if (not microwave_open) and (not stove_open) and (not grill_open) and (not house_build_menu_open):
             draw_house_room_prompts(house_near_interaction_kinds())
         if is_eating:
             draw_eating_progress()
@@ -7895,6 +9113,8 @@ while running:
         supermarket.draw(camera)
         hotel.draw(camera)
         house.draw(camera)
+        ferry_dock.draw(camera)
+        seafood_market.draw(camera)
         mission_center.draw(camera)
         restaurant.draw(camera)
         draw_player(camera.apply(player_x), player_y)
@@ -7902,7 +9122,12 @@ while running:
         update_and_draw_vfx(camera)
         # (vignette removed by request)
     
-    if not in_hotel_room and not in_house_room:
+    if (
+        not in_hotel_room
+        and not in_house_room
+        and (not on_fishing_island)
+        and ferry_anim_timer <= 0
+    ):
         # Draw NPCs
         for npc in npcs:
             npc.draw(camera)
@@ -7917,7 +9142,7 @@ while running:
             draw_eating_progress()
     
     # Draw shop/settings UI last (on top of everything)
-    if (not in_hotel_room) and (not in_house_room) and (shop_open or clothing_shop_open or arcade_shop_open or cafe_open or supermarket_open or hotel_lobby_open or house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open):
+    if (not in_hotel_room) and (not in_house_room) and (not on_fishing_island) and ferry_anim_timer <= 0 and (shop_open or clothing_shop_open or arcade_shop_open or cafe_open or supermarket_open or seafood_market_open or hotel_lobby_open or house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open):
         # Add semi-transparent overlay to dim the background
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
         overlay.fill((0, 0, 0))
@@ -7934,6 +9159,8 @@ while running:
             buttons, close_rect = draw_cafe_menu()
         elif supermarket_open:
             buttons, close_rect = draw_supermarket_menu()
+        elif seafood_market_open:
+            buttons, close_rect = draw_seafood_market_menu()
         elif hotel_lobby_open:
             enter_rect, close_rect = draw_hotel_lobby_menu()
         elif house_lobby_open:
@@ -7948,13 +9175,15 @@ while running:
             draw_achievements_menu()
         elif skill_tree_open:
             draw_skill_tree_menu()
-    elif (not in_hotel_room) and (not in_house_room) and (shop.check_collision(player_x, player_width) or \
+    elif (not in_hotel_room) and (not in_house_room) and (not on_fishing_island) and ferry_anim_timer <= 0 and (shop.check_collision(player_x, player_width) or \
          clothing_shop.check_collision(player_x, player_width) or \
          arcade_shop.check_collision(player_x, player_width) or \
          cafe.check_collision(player_x, player_width) or \
          supermarket.check_collision(player_x, player_width) or \
          hotel.check_collision(player_x, player_width) or \
          house.check_collision(player_x, player_width) or \
+         ferry_dock.check_collision(player_x, player_width) or \
+         seafood_market.check_collision(player_x, player_width) or \
          restaurant.check_collision(player_x, player_width) or \
          mission_center.check_collision(player_x, player_width)):
         wstack = get_world_interaction_stack()
@@ -7976,7 +9205,7 @@ while running:
             item.draw(camera)
 
     # Draw pickup prompt if applicable
-    if show_pickup_prompt and not in_house_room:
+    if show_pickup_prompt and (not in_house_room) and (not on_fishing_island):
         prompt_text = pygame.font.SysFont(None, 24).render("Press P to pick up", True, WHITE)
         prompt_rect = prompt_text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2 - 30))
         screen.blit(prompt_text, prompt_rect)
