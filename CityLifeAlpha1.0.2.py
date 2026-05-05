@@ -230,6 +230,16 @@ class Platform:
                 i * self.segment_width, 500, 
                 self.segment_width, 40
             ))
+
+    def reset_for_window(self, center_x: float):
+        """Rebuild platform segments using current WINDOW_WIDTH."""
+        self.segment_width = WINDOW_WIDTH
+        self.segments = []
+        base = int(math.floor(float(center_x) / float(max(1, self.segment_width))))
+        for i in range(base - 3, base + 4):
+            self.segments.append(
+                pygame.Rect(i * self.segment_width, 500, self.segment_width, 40)
+            )
     
     def update(self, camera):
         # Generate new segments as needed
@@ -5880,14 +5890,30 @@ def handle_player_death():
 vfx_particles = []
 ENABLE_PARTICLES = True
 FULLSCREEN_ENABLED = False
+BASE_WINDOW_WIDTH = WINDOW_WIDTH
+BASE_WINDOW_HEIGHT = WINDOW_HEIGHT
 
 def set_fullscreen(enabled: bool):
-    global screen, FULLSCREEN_ENABLED
+    global screen, FULLSCREEN_ENABLED, WINDOW_WIDTH, WINDOW_HEIGHT
     FULLSCREEN_ENABLED = bool(enabled)
     if FULLSCREEN_ENABLED:
+        info = pygame.display.Info()
+        WINDOW_WIDTH = int(getattr(info, "current_w", BASE_WINDOW_WIDTH) or BASE_WINDOW_WIDTH)
+        WINDOW_HEIGHT = int(getattr(info, "current_h", BASE_WINDOW_HEIGHT) or BASE_WINDOW_HEIGHT)
         screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.FULLSCREEN)
     else:
+        WINDOW_WIDTH = int(BASE_WINDOW_WIDTH)
+        WINDOW_HEIGHT = int(BASE_WINDOW_HEIGHT)
         screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    # Re-sync systems that depend on WINDOW_WIDTH/HEIGHT.
+    try:
+        platform.reset_for_window(player_x)
+    except Exception:
+        pass
+    try:
+        camera.update(player_x)
+    except Exception:
+        pass
 
 class VFXParticle:
     def __init__(self, x, y, vx, vy, radius, color, life):
