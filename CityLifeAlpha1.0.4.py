@@ -456,6 +456,23 @@ arcade_shop_open = False  # Track if arcade shop menu is open
 mission_center_open = False  # Track if mission center menu is open
 supermarket_open = False  # Track if supermarket menu is open
 seafood_market_open = False  # Sell fish from Sun Reef
+# Seafood daily offer (increases sale price by +50% for one random fish per in-game day)
+seafood_daily_offer_fish = None  # fish name str
+seafood_daily_offer_day = -1  # day index last rolled
+
+# Utility cart (appears starting Day 10, never disappears)
+utility_cart_open = False
+fish_upgrade_reel_zone = 0       # widens blue zone
+fish_upgrade_hook_window = 0     # longer hookset window
+fish_upgrade_reel_power = 0      # faster reel progress
+fish_upgrade_luck = 0            # better rare odds
+cheat_panel_open = False
+
+# Black Market (opens every 3 in-game days)
+black_market_open = False
+black_market_day = -1
+black_market_offers = []  # list of dict offers (rolled on open days)
+clothing_coupon_uses = 0  # next N clothing purchases are 50% off
 hotel_lobby_open = False  # Track if hotel lobby menu is open
 cafe_open = False  # Track if cafe menu is open
 in_hotel_room = False  # In-room scene flag
@@ -1271,6 +1288,16 @@ def draw_status_bars():
     weather_label = current_weather.capitalize()
     mini = time_font.render(f"{tod_label}  |  {weather_label}", True, WHITE)
     screen.blit(mini, (24, 118))
+
+    # Day counter (place on the right to avoid stamina bar overlap)
+    day_s = time_font.render(f"Day {int(day_index) + 1}", True, (235, 245, 255))
+    day_r = day_s.get_rect()
+    day_r.topright = (WINDOW_WIDTH - 20, 72)
+    sh = time_font.render(f"Day {int(day_index) + 1}", True, BLACK)
+    sh_r = sh.get_rect()
+    sh_r.topright = (day_r.right + 1, day_r.top + 1)
+    screen.blit(sh, sh_r)
+    screen.blit(day_s, day_r)
     
     # Money counter (yellow text with $ symbol)
     money_font = pygame.font.SysFont(None, 32)
@@ -2076,6 +2103,92 @@ class SeafoodMarket:
         sign = sf.render("SEAFOOD", True, (245, 252, 255))
         screen.blit(sign, sign.get_rect(center=(mx + self.width // 2, self.y + 12)))
 
+
+class UtilityCart:
+    """Permanent vendor cart unlocked on Day 10."""
+
+    def __init__(self):
+        self.original_x = 1860
+        self.width = 170
+        self.height = 120
+        self.y = 380
+
+    def unlocked(self) -> bool:
+        return int(day_index) >= 9  # Day 10 (1-indexed)
+
+    def check_collision(self, player_x, player_width):
+        if not self.unlocked():
+            return False
+        return self.original_x < player_x + player_width and player_x < self.original_x + self.width
+
+    def draw(self, camera):
+        if not self.unlocked():
+            return
+        cx = int(round(camera.apply(self.original_x)))
+        if -self.width >= cx or cx >= WINDOW_WIDTH + self.width:
+            return
+        # cart body
+        pygame.draw.rect(screen, (160, 120, 70), (cx, self.y + 34, self.width, 74), border_radius=10)
+        pygame.draw.rect(screen, (85, 60, 35), (cx, self.y + 34, self.width, 74), 3, border_radius=10)
+        # wheels
+        pygame.draw.circle(screen, (45, 45, 50), (cx + 28, self.y + 112), 12)
+        pygame.draw.circle(screen, (45, 45, 50), (cx + self.width - 28, self.y + 112), 12)
+        pygame.draw.circle(screen, (120, 120, 130), (cx + 28, self.y + 112), 6)
+        pygame.draw.circle(screen, (120, 120, 130), (cx + self.width - 28, self.y + 112), 6)
+        # canopy
+        pygame.draw.rect(screen, (60, 150, 120), (cx - 6, self.y + 10, self.width + 12, 26), border_radius=6)
+        pygame.draw.rect(screen, (25, 90, 75), (cx - 6, self.y + 10, self.width + 12, 26), 2, border_radius=6)
+        for i in range(7):
+            pygame.draw.rect(screen, (240, 250, 252) if i % 2 else (90, 200, 160), (cx - 4 + i * 26, self.y + 12, 24, 22), border_radius=4)
+        # sign + seller
+        sf = pygame.font.SysFont(None, 24)
+        screen.blit(sf.render("UTILITIES", True, (245, 252, 255)), (cx + 34, self.y - 4))
+        # seller
+        pygame.draw.circle(screen, (240, 210, 180), (cx + 26, self.y + 58), 12)
+        pygame.draw.rect(screen, (110, 70, 180), (cx + 14, self.y + 70, 24, 34), border_radius=6)
+        pygame.draw.rect(screen, (255, 255, 255), (cx + 10, self.y + 52, 32, 10), border_radius=5)
+
+
+class BlackMarket:
+    """Shop that opens every 3 days. Sells 50%-off rotating stock."""
+
+    def __init__(self):
+        self.original_x = 2060
+        self.width = 190
+        self.height = 120
+        self.y = 380
+
+    def check_collision(self, player_x, player_width):
+        return self.original_x < player_x + player_width and player_x < self.original_x + self.width
+
+    def draw(self, camera):
+        cx = int(round(camera.apply(self.original_x)))
+        if -self.width >= cx or cx >= WINDOW_WIDTH + self.width:
+            return
+        open_now = black_market_open_today()
+
+        body = (35, 35, 45) if open_now else (55, 55, 65)
+        border = (180, 60, 120) if open_now else (110, 110, 120)
+        pygame.draw.rect(screen, body, (cx, self.y + 30, self.width, 84), border_radius=10)
+        pygame.draw.rect(screen, border, (cx, self.y + 30, self.width, 84), 3, border_radius=10)
+
+        # neon sign
+        sf = pygame.font.SysFont(None, 24)
+        sign = sf.render("BLACK MARKET", True, (255, 90, 170) if open_now else (160, 160, 170))
+        screen.blit(sign, sign.get_rect(center=(cx + self.width // 2, self.y + 18)))
+
+        # door + shutter
+        pygame.draw.rect(screen, (20, 20, 25), (cx + 78, self.y + 62, 40, 52), border_radius=6)
+        for i in range(5):
+            pygame.draw.line(screen, (90, 90, 100), (cx + 18, self.y + 58 + i * 8), (cx + self.width - 18, self.y + 58 + i * 8), 2)
+
+        # open/closed tag
+        tag = "OPEN" if open_now else "CLOSED"
+        tag_s = pygame.font.SysFont(None, 22).render(tag, True, (245, 245, 250))
+        tr = tag_s.get_rect(center=(cx + self.width // 2, self.y + 106))
+        pygame.draw.rect(screen, (180, 60, 120) if open_now else (90, 90, 100), tr.inflate(18, 8), border_radius=8)
+        screen.blit(tag_s, tag_s.get_rect(center=tr.center))
+
 class Hotel:
     def __init__(self):
         self.original_x = 1050
@@ -2424,9 +2537,377 @@ def fish_rarity_label(name: str) -> tuple[str, tuple]:
     return "Mythic", (255, 105, 180)
 
 
+def refresh_seafood_daily_offer(force: bool = False):
+    """Pick a new daily offer fish once per in-game day."""
+    global seafood_daily_offer_fish, seafood_daily_offer_day
+    if (not force) and seafood_daily_offer_day == day_index and seafood_daily_offer_fish:
+        return
+    seafood_daily_offer_day = int(day_index)
+    names = [row[0] for row in FISH_CATCH_TABLE]
+    if not names:
+        seafood_daily_offer_fish = None
+        return
+    # Avoid the absolute last entry so it doesn't dominate the offer UI.
+    pick_from = names[:-1] if len(names) > 2 else names
+    seafood_daily_offer_fish = random.choice(pick_from)
+
+
+def skip_days(n: int):
+    """Cheat utility: advance in-game days, refresh day-based rolls."""
+    global day_index, current_time
+    n = int(max(0, n))
+    if n <= 0:
+        return
+    day_index += n
+    current_time = 0
+    refresh_seafood_daily_offer(force=True)
+    refresh_black_market_offers(force=True)
+    show_success_toast(f"Skipped {n} day(s).")
+
+
+def black_market_open_today() -> bool:
+    """Open on every 3rd day: Day 3, 6, 9, 12... (1-indexed)."""
+    return ((int(day_index) + 1) % 3) == 0
+
+
+def refresh_black_market_offers(force: bool = False):
+    """Roll Black Market stock when an open day starts."""
+    global black_market_day, black_market_offers
+    if not black_market_open_today():
+        return
+    if (not force) and int(black_market_day) == int(day_index) and black_market_offers:
+        return
+    black_market_day = int(day_index)
+
+    pool = []
+    # Bakery items
+    for nm, it in shop_items.items():
+        pool.append({"kind": "item", "source": "Bakery", "name": nm, "base_price": int(it.price), "item": it})
+    # Supermarket items
+    for nm, it in SUPERMARKET_ITEMS.items():
+        pool.append({"kind": "item", "source": "Supermarket", "name": nm, "base_price": int(it.price), "item": it})
+    # Cafe drinks
+    for d in CAFE_DRINKS:
+        pool.append({"kind": "cafe", "source": "Cafe", "name": d["name"], "base_price": int(d["price"]), "drink": d})
+    # Clothing shop entries
+    for nm, d in clothing_items.items():
+        pool.append({"kind": "clothing", "source": "Clothing", "name": nm, "base_price": int(d.get("price", 0) or 0)})
+
+    # Choose 3 distinct random entries
+    picks = random.sample(pool, k=min(3, len(pool))) if pool else []
+    offers = [{"kind": "coupon", "source": "Black Market", "name": "Clothing Coupon", "base_price": 20}]
+    for p in picks:
+        offers.append(p)
+
+    # Compute discounted prices (50% off), using effective price first.
+    for o in offers:
+        base = int(o.get("base_price", 0) or 0)
+        eff = get_effective_price(base)
+        o["price"] = max(0, int(math.ceil(eff * 0.5)))
+        if o["kind"] == "coupon":
+            o["price"] = 20
+
+    black_market_offers = offers
+
+
+def _cart_catalog():
+    """Returns list of cart offerings (id, name, desc, cost)."""
+    offers = []
+    offers.append(("reel_zone", "Wider Reel Zone", "Makes the blue reel zone wider (easier to keep fish inside).", 120 + fish_upgrade_reel_zone * 120))
+    offers.append(("hook_window", "Hook Master", "Gives you more time to hookset after a bite.", 140 + fish_upgrade_hook_window * 140))
+    offers.append(("reel_power", "Fast Reel", "Reels fish in faster when you stay in the zone.", 160 + fish_upgrade_reel_power * 160))
+    offers.append(("luck", "Lucky Lure", "Increases odds of rarer fish.", 220 + fish_upgrade_luck * 220))
+    return offers
+
+
+def draw_utility_cart_menu():
+    """Utility cart upgrades (unlocked on Day 10)."""
+    menu_rect = pygame.Rect(WINDOW_WIDTH // 7, WINDOW_HEIGHT // 7, int(WINDOW_WIDTH * 0.72), int(WINDOW_HEIGHT * 0.72))
+    pygame.draw.rect(screen, (250, 252, 248), menu_rect, border_radius=12)
+    pygame.draw.rect(screen, (35, 60, 50), menu_rect, 4, border_radius=12)
+
+    pad = 18
+    title = pygame.font.SysFont(None, 48).render("Utility Cart", True, (35, 60, 50))
+    screen.blit(title, (menu_rect.x + pad, menu_rect.y + pad - 4))
+    sub = pygame.font.SysFont(None, 22).render("Upgrades are permanent. Day 10+ only.", True, (80, 90, 95))
+    screen.blit(sub, (menu_rect.x + pad, menu_rect.y + pad + 44))
+
+    y = menu_rect.y + pad + 86
+    x = menu_rect.x + pad
+    w = menu_rect.width - pad * 2
+    btn_h = 62
+    gap = 10
+    mouse = pygame.mouse.get_pos()
+
+    buttons = []  # (rect, offer_id, can_buy)
+    name_font = pygame.font.SysFont(None, 28)
+    desc_font = pygame.font.SysFont(None, 20)
+    cost_font = pygame.font.SysFont(None, 24)
+    for oid, name, desc, cost in _cart_catalog():
+        rect = pygame.Rect(x, y, w, btn_h)
+        hover = rect.collidepoint(mouse)
+        pygame.draw.rect(screen, (255, 255, 255) if hover else (246, 250, 246), rect, border_radius=10)
+        pygame.draw.rect(screen, (35, 60, 50), rect, 2, border_radius=10)
+
+        can = money >= cost
+        screen.blit(name_font.render(name, True, (20, 30, 25)), (rect.x + 12, rect.y + 8))
+        screen.blit(desc_font.render(desc, True, (70, 80, 85)), (rect.x + 12, rect.y + 34))
+
+        cost_s = cost_font.render(f"${cost}", True, (30, 110, 80) if can else (140, 90, 90))
+        screen.blit(cost_s, cost_s.get_rect(midright=(rect.right - 14, rect.centery)))
+
+        buttons.append((rect, oid, can))
+        y += btn_h + gap
+
+    close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
+    pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+    close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
+    screen.blit(close_text, close_text.get_rect(center=close_rect.center))
+    return buttons, close_rect
+
+
+def handle_utility_cart_click(pos):
+    global utility_cart_open, money
+    global fish_upgrade_reel_zone, fish_upgrade_hook_window, fish_upgrade_reel_power, fish_upgrade_luck
+    buttons, close_rect = draw_utility_cart_menu()
+    if close_rect.collidepoint(pos):
+        utility_cart_open = False
+        return
+    offers = {o[0]: o for o in _cart_catalog()}
+    for rect, oid, can in buttons:
+        if (not rect.collidepoint(pos)) or (not can):
+            continue
+        offer = offers.get(oid)
+        if not offer:
+            return
+        cost = int(offer[3])
+        if money < cost:
+            show_failure_toast("Not enough money.")
+            return
+        money -= cost
+        if oid == "reel_zone":
+            fish_upgrade_reel_zone += 1
+        elif oid == "hook_window":
+            fish_upgrade_hook_window += 1
+        elif oid == "reel_power":
+            fish_upgrade_reel_power += 1
+        elif oid == "luck":
+            fish_upgrade_luck += 1
+        show_success_toast("Upgrade purchased.")
+        return
+
+
+def draw_black_market_menu():
+    """Black Market: coupon + 3 random 50%-off picks (every 3 days)."""
+    refresh_black_market_offers()
+    menu_rect = pygame.Rect(WINDOW_WIDTH // 7, WINDOW_HEIGHT // 7, int(WINDOW_WIDTH * 0.72), int(WINDOW_HEIGHT * 0.72))
+    pygame.draw.rect(screen, (248, 246, 252), menu_rect, border_radius=12)
+    pygame.draw.rect(screen, (40, 20, 55), menu_rect, 4, border_radius=12)
+
+    pad = 18
+    title = pygame.font.SysFont(None, 48).render("Black Market", True, (40, 20, 55))
+    screen.blit(title, (menu_rect.x + pad, menu_rect.y + pad - 4))
+    sub = pygame.font.SysFont(None, 22).render("Open every 3 days · 50% off rotating stock", True, (90, 85, 100))
+    screen.blit(sub, (menu_rect.x + pad, menu_rect.y + pad + 44))
+
+    if not black_market_open_today():
+        msg = pygame.font.SysFont(None, 30).render("Closed today.", True, (140, 90, 110))
+        screen.blit(msg, msg.get_rect(center=(menu_rect.centerx, menu_rect.centery)))
+        close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
+        pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+        close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
+        screen.blit(close_text, close_text.get_rect(center=close_rect.center))
+        return [], close_rect
+
+    y = menu_rect.y + pad + 90
+    x = menu_rect.x + pad
+    w = menu_rect.width - pad * 2
+    row_h = 62
+    gap = 10
+    mouse = pygame.mouse.get_pos()
+    name_font = pygame.font.SysFont(None, 28)
+    desc_font = pygame.font.SysFont(None, 20)
+    cost_font = pygame.font.SysFont(None, 24)
+
+    buttons = []  # (rect, idx, can)
+    for idx, o in enumerate(black_market_offers[:4]):
+        rect = pygame.Rect(x, y, w, row_h)
+        hover = rect.collidepoint(mouse)
+        pygame.draw.rect(screen, (255, 255, 255) if hover else (250, 248, 255), rect, border_radius=10)
+        pygame.draw.rect(screen, (40, 20, 55), rect, 2, border_radius=10)
+
+        price = int(o.get("price", 0) or 0)
+        can = money >= price
+
+        if o["kind"] == "coupon":
+            nm = "Clothing Coupon"
+            desc = "Next 3 clothing purchases are 50% off."
+        else:
+            nm = o["name"]
+            desc = f"{o.get('source','Shop')} pick — 50% off"
+
+        screen.blit(name_font.render(nm, True, (25, 20, 35)), (rect.x + 12, rect.y + 8))
+        screen.blit(desc_font.render(desc, True, (85, 80, 95)), (rect.x + 12, rect.y + 34))
+
+        cost_s = cost_font.render(f"${price}", True, (180, 60, 120) if can else (140, 90, 90))
+        screen.blit(cost_s, cost_s.get_rect(midright=(rect.right - 14, rect.centery)))
+
+        buttons.append((rect, idx, can))
+        y += row_h + gap
+
+    close_rect = pygame.Rect(menu_rect.right - 46, menu_rect.top + 14, 32, 32)
+    pygame.draw.rect(screen, RED, close_rect, border_radius=6)
+    close_text = pygame.font.SysFont(None, 30).render("X", True, WHITE)
+    screen.blit(close_text, close_text.get_rect(center=close_rect.center))
+    return buttons, close_rect
+
+
+def handle_black_market_click(pos):
+    global black_market_open, money, clothing_coupon_uses
+    if not black_market_open_today():
+        black_market_open = False
+        return
+    buttons, close_rect = draw_black_market_menu()
+    if close_rect.collidepoint(pos):
+        black_market_open = False
+        return
+    for rect, idx, can in buttons:
+        if (not can) or (not rect.collidepoint(pos)):
+            continue
+        if idx >= len(black_market_offers):
+            return
+        o = black_market_offers[idx]
+        price = int(o.get("price", 0) or 0)
+        if money < price:
+            show_failure_toast("Not enough money.")
+            return
+        # Coupon
+        if o["kind"] == "coupon":
+            money -= price
+            clothing_coupon_uses += 3
+            show_success_toast("Clothing Coupon activated (3 uses).")
+            return
+        # Clothing
+        if o["kind"] == "clothing":
+            nm = o["name"]
+            if nm not in clothing_items:
+                return
+            it = clothing_items[nm]
+            if it.get("owned", False):
+                for name in clothing_items:
+                    clothing_items[name]["equipped"] = False
+                it["equipped"] = True
+                show_success_toast(f"Equipped {nm}.")
+                return
+            money -= price
+            it["owned"] = True
+            for name in clothing_items:
+                clothing_items[name]["equipped"] = False
+            it["equipped"] = True
+            show_success_toast(f"Bought {nm}.")
+            return
+        # Cafe drink
+        if o["kind"] == "cafe":
+            d = o.get("drink")
+            if not d:
+                return
+            coffee = ShopItem(d["name"], price, int(d.get("hunger_restore", 2)), "drink")
+            coffee.coffee_mult = float(d["mult"])
+            coffee.coffee_duration_ms = int(d["duration_ms"])
+            coffee.coffee_source = True
+            if not inventory_can_accept(coffee):
+                show_failure_toast("Inventory full.")
+                return
+            money -= price
+            try_add_inventory(coffee)
+            show_success_toast(f"Bought {d['name']}.")
+            return
+        # Regular item
+        src_item = o.get("item")
+        if not src_item:
+            return
+        it = clone_item(src_item)
+        it.price = price
+        if not inventory_can_accept(it):
+            show_failure_toast("Inventory full.")
+            return
+        money -= price
+        try_add_inventory(it)
+        show_success_toast(f"Bought {it.name}.")
+        return
+
+
+def draw_cheat_panel():
+    overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+    overlay.fill((0, 0, 0))
+    overlay.set_alpha(170)
+    screen.blit(overlay, (0, 0))
+
+    w = max(520, int(WINDOW_WIDTH * 0.46))
+    h = max(420, int(WINDOW_HEIGHT * 0.46))
+    menu = pygame.Rect((WINDOW_WIDTH - w) // 2, (WINDOW_HEIGHT - h) // 2, w, h)
+    pygame.draw.rect(screen, (245, 245, 252), menu, border_radius=12)
+    pygame.draw.rect(screen, (40, 40, 65), menu, 4, border_radius=12)
+
+    pad = 18
+    title = pygame.font.SysFont(None, 52).render("Cheat Panel", True, (40, 40, 65))
+    screen.blit(title, (menu.x + pad, menu.y + pad - 6))
+    hint = pygame.font.SysFont(None, 22).render("ADHDSWOP opens this panel. ESC closes.", True, (85, 85, 100))
+    screen.blit(hint, (menu.x + pad, menu.y + pad + 44))
+
+    btn_font = pygame.font.SysFont(None, 28)
+    buttons = []
+    bw = menu.width - pad * 2
+    bh = 44
+    gap = 12
+    y = menu.y + pad + 96
+    entries = [
+        ("money", "+$10,000", (110, 220, 170)),
+        ("xp", "+10,000 XP", (110, 190, 255)),
+        ("day1", "Skip +1 day", (250, 210, 120)),
+        ("day5", "Skip +5 days", (250, 180, 120)),
+        ("close", "Close", (240, 120, 120)),
+    ]
+    mouse = pygame.mouse.get_pos()
+    for key, label, col in entries:
+        r = pygame.Rect(menu.x + pad, y, bw, bh)
+        hov = r.collidepoint(mouse)
+        draw_button(r, col, (25, 25, 40), hover=hov, radius=10)
+        txt = btn_font.render(label, True, (20, 20, 30))
+        screen.blit(txt, txt.get_rect(center=r.center))
+        buttons.append((r, key))
+        y += bh + gap
+
+    return buttons
+
+
+def handle_cheat_panel_click(pos):
+    global cheat_panel_open, money, xp
+    buttons = draw_cheat_panel()
+    for r, key in buttons:
+        if not r.collidepoint(pos):
+            continue
+        if key == "money":
+            money += 10000
+            show_success_toast("+$10,000.")
+        elif key == "xp":
+            xp += 10000
+            check_level_up()
+            show_success_toast("+10,000 XP.")
+        elif key == "day1":
+            skip_days(1)
+        elif key == "day5":
+            skip_days(5)
+        elif key == "close":
+            cheat_panel_open = False
+        return
+
+
 def _fish_weighted_roll(cast_q: float, reel_remain: float) -> tuple:
     """cast_q,reel_remain in ~0..1 improve rare odds slightly."""
-    bonus = max(0.0, min(0.12, (cast_q - 0.35) * 0.15 + (reel_remain - 0.5) * 0.08))
+    luck_boost = max(0.0, min(0.20, 0.05 * float(fish_upgrade_luck)))
+    bonus_cap = 0.12 + luck_boost
+    bonus = max(0.0, min(bonus_cap, (cast_q - 0.35) * 0.15 + (reel_remain - 0.5) * 0.08 + luck_boost * 0.5))
     weights = [max(0.02, w + bonus * (0.15 + i * 0.04)) for i, (*_, w) in enumerate(FISH_CATCH_TABLE)]
     s = sum(weights)
     r = random.random() * s
@@ -2690,7 +3171,7 @@ def _draw_fishing_minigame_overlay():
         screen.blit(font.render("Reel! Keep the fish inside your blue bar (A / D)", True, WHITE), (20, y0))
         bar_x, bar_y, bar_w, bar_h = 20, y0 + 34, 360, 28
         pygame.draw.rect(screen, (35, 40, 50), (bar_x, bar_y, bar_w, bar_h), border_radius=6)
-        z_half = 0.14
+        z_half = 0.14 + min(0.10, 0.03 * float(fish_upgrade_reel_zone))
         pc = bar_x + int(fish_player_center * bar_w)
         zl = int(max(bar_x + 4, pc - z_half * bar_w))
         zr = int(min(bar_x + bar_w - 4, pc + z_half * bar_w))
@@ -2730,7 +3211,7 @@ def update_fishing_minigame(keys):
     elif fish_phase == "wait":
         if now >= fish_wait_until_tick:
             fish_phase = "hookset"
-            fish_hook_deadline_tick = now + 420
+            fish_hook_deadline_tick = now + 420 + int(120 * float(fish_upgrade_hook_window))
     elif fish_phase == "hookset":
         if now > fish_hook_deadline_tick:
             fish_phase = "lose"
@@ -2751,9 +3232,10 @@ def update_fishing_minigame(keys):
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
             acc += 0.006
         fish_player_center = max(0.14, min(0.86, fish_player_center + acc))
-        z_half = 0.14
+        z_half = 0.14 + min(0.10, 0.03 * float(fish_upgrade_reel_zone))
         if abs(fish_pos - fish_player_center) < z_half:
-            fish_reel_progress = min(100.0, fish_reel_progress + 1.35)
+            reel_gain = 1.35 * (1.0 + 0.15 * float(fish_upgrade_reel_power))
+            fish_reel_progress = min(100.0, fish_reel_progress + reel_gain)
         else:
             fish_reel_progress = max(0.0, fish_reel_progress - 0.35)
         if fish_reel_progress >= 100.0:
@@ -3680,6 +4162,7 @@ def draw_supermarket_menu():
 
 def draw_seafood_market_menu():
     """Sell fish from your inventory (1 per click)."""
+    refresh_seafood_daily_offer()
     menu_rect = pygame.Rect(WINDOW_WIDTH // 6, WINDOW_HEIGHT // 6, int(WINDOW_WIDTH * 0.66), int(WINDOW_HEIGHT * 0.66))
     pygame.draw.rect(screen, (235, 248, 252), menu_rect, border_radius=10)
     pygame.draw.rect(screen, (20, 55, 70), menu_rect, 4, border_radius=10)
@@ -3701,8 +4184,41 @@ def draw_seafood_market_menu():
     mouse = pygame.mouse.get_pos()
     font = pygame.font.SysFont(None, 26)
 
-    buttons = []  # (rect, slot_idx, can)
+    buttons = []  # (rect, action, slot_idx_or_none, can)
     y = list_y
+
+    # --- Daily offer card ---
+    offer_name = seafood_daily_offer_fish
+    offer_card = pygame.Rect(list_x, y, list_w, 76)
+    pygame.draw.rect(screen, (245, 252, 255), offer_card, border_radius=12)
+    pygame.draw.rect(screen, (120, 200, 255), offer_card, 2, border_radius=12)
+    of_title = pygame.font.SysFont(None, 28).render("Daily Offer", True, (20, 55, 70))
+    screen.blit(of_title, (offer_card.x + 12, offer_card.y + 8))
+    if offer_name:
+        rlab, rcol = fish_rarity_label(offer_name)
+        sub = pygame.font.SysFont(None, 22).render(f"{offer_name}  ({rlab})  sells for +50% today", True, (55, 70, 80))
+        screen.blit(sub, (offer_card.x + 12, offer_card.y + 40))
+        # Offer sell button
+        btn = pygame.Rect(offer_card.right - 156, offer_card.y + 20, 140, 36)
+        # enabled only if player has this fish
+        has_offer = False
+        for si in range(MAX_INVENTORY):
+            s = inventory[si]
+            if s and getattr(s["item"], "caught_fish", False) and s["item"].name == offer_name:
+                has_offer = True
+                break
+        hov = btn.collidepoint(mouse)
+        fill = (110, 220, 170) if has_offer else (150, 160, 165)
+        draw_button(btn, fill, (20, 85, 70), hover=hov and has_offer, radius=10)
+        lab = "Sell offer" if has_offer else "Need fish"
+        bt = pygame.font.SysFont(None, 24).render(lab, True, (15, 35, 30))
+        screen.blit(bt, bt.get_rect(center=btn.center))
+        buttons.append((btn, "offer", None, has_offer))
+    else:
+        sub = pygame.font.SysFont(None, 22).render("No offer today.", True, (55, 70, 80))
+        screen.blit(sub, (offer_card.x + 12, offer_card.y + 40))
+    y += offer_card.height + 12
+
     any_fish = False
     for i in range(MAX_INVENTORY):
         slot = inventory[i]
@@ -3734,7 +4250,7 @@ def draw_seafood_market_menu():
         left_txt = truncate_text(font, f"{name}  x{count}", max_left_w)
         left = font.render(left_txt, True, (20, 35, 45))
         screen.blit(left, (rect.x + 12, rect.y + 12))
-        buttons.append((rect, i, True))
+        buttons.append((rect, "sell", i, True))
         y += btn_h + btn_gap
 
     if not any_fish:
@@ -3753,19 +4269,44 @@ def handle_seafood_market_click(pos, buttons, close_rect):
     if close_rect.collidepoint(pos):
         seafood_market_open = False
         return
-    for rect, slot_idx, can in buttons:
-        if can and rect.collidepoint(pos):
-            slot = inventory[slot_idx]
-            if not slot:
+    for rect, action, slot_idx, can in buttons:
+        if (not can) or (not rect.collidepoint(pos)):
+            continue
+        if action == "offer":
+            nm = seafood_daily_offer_fish
+            if not nm:
                 return
-            it = slot["item"]
-            if not getattr(it, "caught_fish", False):
+            # find a slot with this fish
+            found = None
+            for i in range(MAX_INVENTORY):
+                s = inventory[i]
+                if s and getattr(s["item"], "caught_fish", False) and s["item"].name == nm:
+                    found = i
+                    break
+            if found is None:
+                show_failure_toast("You don't have today's offer fish.")
                 return
-            price = int(getattr(it, "price", 0) or 0)
-            remove_one_from_slot(slot_idx)
-            money += max(0, price)
-            show_success_toast(f"Sold {it.name} (+${price}).")
+            it = inventory[found]["item"]
+            base = int(getattr(it, "price", 0) or 0)
+            bonus = int(math.ceil(base * 1.5))
+            remove_one_from_slot(found)
+            money += max(0, bonus)
+            show_success_toast(f"Daily offer: sold {it.name} (+${bonus}).")
             return
+        # normal sell
+        if slot_idx is None:
+            return
+        slot = inventory[int(slot_idx)]
+        if not slot:
+            return
+        it = slot["item"]
+        if not getattr(it, "caught_fish", False):
+            return
+        price = int(getattr(it, "price", 0) or 0)
+        remove_one_from_slot(int(slot_idx))
+        money += max(0, price)
+        show_success_toast(f"Sold {it.name} (+${price}).")
+        return
 
 def handle_supermarket_click(pos, buttons, close_rect):
     global money, inventory, xp, money_spent, supermarket_open
@@ -4605,6 +5146,10 @@ def get_interaction_label():
         return "Bakery"
     if house.check_collision(player_x, player_width):
         return "Your House"
+    if utility_cart.check_collision(player_x, player_width):
+        return "Utility Cart"
+    if black_market.check_collision(player_x, player_width):
+        return "Black Market" if black_market_open_today() else "Black Market (closed)"
     if (
         seafood_market.check_collision(player_x, player_width)
         and (not on_fishing_island)
@@ -4632,6 +5177,8 @@ WORLD_INTERACTION_LABELS = {
     "bakery": "Bakery",
     "ferry": "Ferry — Sun Reef",
     "seafood": "Seafood Market",
+    "cart": "Utility Cart",
+    "black": "Black Market",
 }
 
 
@@ -4654,6 +5201,8 @@ def get_world_interaction_stack():
     add(arcade_shop, "arcade")
     add(clothing_shop, "clothing")
     add(shop, "bakery")
+    add(utility_cart, "cart")
+    add(black_market, "black")
     if ferry_anim_timer <= 0 and (not on_fishing_island):
         add(ferry_dock, "ferry")
         add(seafood_market, "seafood")
@@ -4664,6 +5213,7 @@ def get_world_interaction_stack():
 def apply_world_interaction_code(code: str):
     global mission_center_open, restaurant_open, bistro_chef_dropdown_chef_idx, restaurant_menu_scroll, restaurant_upgrades_scroll, restaurant_menu_tab
     global hotel_lobby_open, house_lobby_open, supermarket_open, shop_open, clothing_shop_open, arcade_shop_open, cafe_open, seafood_market_open
+    global utility_cart_open, black_market_open
     if code == "missions":
         mission_center_open = not mission_center_open
         if mission_center_open:
@@ -4722,6 +5272,16 @@ def apply_world_interaction_code(code: str):
         try_board_ferry_to_island()
     elif code == "seafood":
         seafood_market_open = not seafood_market_open
+    elif code == "cart":
+        utility_cart_open = not utility_cart_open
+        black_market_open = False
+    elif code == "black":
+        if not black_market_open_today():
+            show_failure_toast("Black Market opens every 3 days.")
+            return
+        refresh_black_market_offers()
+        black_market_open = not black_market_open
+        utility_cart_open = False
 
 
 def draw_world_interaction_prompts(codes: list):
@@ -5602,6 +6162,8 @@ hotel = Hotel()  # Initialize hotel
 house = House()
 ferry_dock = FerryDock()
 seafood_market = SeafoodMarket()
+utility_cart = UtilityCart()
+black_market = BlackMarket()
 restaurant = Restaurant()
 sync_restaurant_building_geometry()
 benches = [
@@ -5667,7 +6229,7 @@ def handle_shop_click(pos, buttons, close_rect):
 
 # Add this function to handle clothing shop clicks
 def handle_clothing_shop_click(pos, buttons, close_rect):
-    global money, clothing_items, xp, money_spent
+    global money, clothing_items, xp, money_spent, clothing_coupon_uses
     
     if close_rect.collidepoint(pos):
         return False
@@ -5682,11 +6244,15 @@ def handle_clothing_shop_click(pos, buttons, close_rect):
                 item['equipped'] = True
             else:
                 price = get_effective_price(item['price'])
+                if clothing_coupon_uses > 0:
+                    price = int(math.ceil(price * 0.5))
                 if money < price:
                     show_failure_toast("Not enough money.")
                     continue
                 money -= price
                 item['owned'] = True
+                if clothing_coupon_uses > 0:
+                    clothing_coupon_uses -= 1
                 # Add XP based on purchase price
                 xp += int(price * XP_MULTIPLIER)
                 check_level_up()
@@ -6618,6 +7184,8 @@ def draw_stamina_bar():
         or arcade_shop_open
         or supermarket_open
         or seafood_market_open
+        or utility_cart_open
+        or black_market_open
         or hotel_lobby_open
         or house_lobby_open
         or mission_center_open
@@ -6634,6 +7202,7 @@ def draw_stamina_bar():
         or house_build_menu_open
         or on_fishing_island
         or ferry_anim_timer > 0
+        or cheat_panel_open
     )
     if hide_now:
         # These UIs feel cleaner with stamina fully hidden (no half-fade linger).
@@ -6687,6 +7256,7 @@ FADE_SPEED = 15  # Speed of fade effect
 DAY_LENGTH = 3600  # 1 minute = 3600 frames at 60 FPS
 current_time = 0
 sky_color = SKY_BLUE
+day_index = 0  # increments each time current_time wraps
 
 # Shop hours (fraction of the 0..1 day cycle).
 # 0.0 is midnight, 0.25 sunrise-ish, 0.5 noon-ish, 0.75 sunset-ish.
@@ -6694,8 +7264,13 @@ sky_color = SKY_BLUE
 
 # Add this function
 def update_day_night_cycle():
-    global current_time, sky_color
+    global current_time, sky_color, day_index
+    prev = current_time
     current_time = (current_time + 1) % DAY_LENGTH
+    if prev > current_time:
+        day_index += 1
+        refresh_seafood_daily_offer(force=True)
+        refresh_black_market_offers(force=True)
     
     # Calculate time of day (0.0 to 1.0)
     time_of_day = current_time / DAY_LENGTH
@@ -8186,16 +8761,20 @@ def draw_skill_tree_menu():
 
 while running:
     keys = pygame.key.get_pressed()  # Get keyboard state once at start of loop
-    paused = (shop_open or clothing_shop_open or arcade_shop_open or supermarket_open or seafood_market_open or hotel_lobby_open or
+    paused = (shop_open or clothing_shop_open or arcade_shop_open or supermarket_open or seafood_market_open or utility_cart_open or black_market_open or hotel_lobby_open or
               house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open or
               arcade_shop.any_arcade_playing() or cafe_open or in_hotel_room or in_house_room or microwave_open or stove_open or grill_open or
-              sleep_cutscene_timer > 0 or house_build_menu_open or on_fishing_island or ferry_anim_timer > 0)
+              sleep_cutscene_timer > 0 or house_build_menu_open or on_fishing_island or ferry_anim_timer > 0 or cheat_panel_open)
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                if cheat_panel_open:
+                    cheat_panel_open = False
+                    continue
             ch = None
             if event.unicode and len(event.unicode) == 1:
                 u = event.unicode.upper()
@@ -8206,11 +8785,10 @@ while running:
             if ch:
                 cheat_code_buffer = (cheat_code_buffer + ch)[-16:]
                 if cheat_code_buffer.endswith("ADHDSWOP"):
-                    money += 10000
-                    xp += 10000
-                    check_level_up()
+                    cheat_panel_open = True
+                    utility_cart_open = False
                     cheat_code_buffer = ""
-                    show_success_toast("+$10,000 and +10,000 XP.")
+                    show_success_toast("Cheat panel opened.")
 
         # Modern mouse wheel event (some pygame versions)
         if event.type == pygame.MOUSEWHEEL:
@@ -8533,6 +9111,15 @@ while running:
                             if not sold_to_someone:
                                 show_failure_toast("No one in range — stand next to someone first.")
                 elif event.key == pygame.K_ESCAPE:
+                    if cheat_panel_open:
+                        cheat_panel_open = False
+                        continue
+                    elif utility_cart_open:
+                        utility_cart_open = False
+                        continue
+                    elif black_market_open:
+                        black_market_open = False
+                        continue
                     if restaurant_open:
                         restaurant_open = False
                         bistro_chef_dropdown_chef_idx = None
@@ -8578,6 +9165,9 @@ while running:
                     continue
 
                 # Left click
+                if cheat_panel_open:
+                    handle_cheat_panel_click(event.pos)
+                    continue
                 if microwave_open:
                     buttons, close_rect = draw_microwave_menu()
                     if close_rect.collidepoint(event.pos):
@@ -8703,6 +9293,10 @@ while running:
                                     show_success_toast("You own the house — press B inside to furnish it.")
                                 else:
                                     show_failure_toast(f"Need ${HOUSE_PURCHASE_COST} for the deed.")
+                    elif utility_cart_open:
+                        handle_utility_cart_click(event.pos)
+                    elif black_market_open:
+                        handle_black_market_click(event.pos)
                     elif SETTINGS_OPEN:
                         buttons = draw_settings_menu()
                         for button, text in buttons:
@@ -9141,6 +9735,8 @@ while running:
         house.draw(camera)
         ferry_dock.draw(camera)
         seafood_market.draw(camera)
+        utility_cart.draw(camera)
+        black_market.draw(camera)
         mission_center.draw(camera)
         restaurant.draw(camera)
         draw_player(camera.apply(player_x), player_y)
@@ -9168,14 +9764,16 @@ while running:
             draw_eating_progress()
     
     # Draw shop/settings UI last (on top of everything)
-    if (not in_hotel_room) and (not in_house_room) and (not on_fishing_island) and ferry_anim_timer <= 0 and (shop_open or clothing_shop_open or arcade_shop_open or cafe_open or supermarket_open or seafood_market_open or hotel_lobby_open or house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open):
+    if (not in_hotel_room) and (not in_house_room) and (not on_fishing_island) and ferry_anim_timer <= 0 and (shop_open or clothing_shop_open or arcade_shop_open or cafe_open or supermarket_open or seafood_market_open or utility_cart_open or black_market_open or hotel_lobby_open or house_lobby_open or mission_center_open or restaurant_open or SETTINGS_OPEN or achievements_open or skill_tree_open or cheat_panel_open):
         # Add semi-transparent overlay to dim the background
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
         overlay.fill((0, 0, 0))
         overlay.set_alpha(128)  # 50% transparent
         screen.blit(overlay, (0, 0))
         # Draw shop menu
-        if shop_open:
+        if cheat_panel_open:
+            draw_cheat_panel()
+        elif shop_open:
             buttons, close_rect = draw_shop_menu()
         elif clothing_shop_open:
             buttons, close_rect = draw_clothing_shop_menu()
@@ -9187,6 +9785,10 @@ while running:
             buttons, close_rect = draw_supermarket_menu()
         elif seafood_market_open:
             buttons, close_rect = draw_seafood_market_menu()
+        elif utility_cart_open:
+            buttons, close_rect = draw_utility_cart_menu()
+        elif black_market_open:
+            buttons, close_rect = draw_black_market_menu()
         elif hotel_lobby_open:
             enter_rect, close_rect = draw_hotel_lobby_menu()
         elif house_lobby_open:
@@ -9210,6 +9812,8 @@ while running:
          house.check_collision(player_x, player_width) or \
          ferry_dock.check_collision(player_x, player_width) or \
          seafood_market.check_collision(player_x, player_width) or \
+         utility_cart.check_collision(player_x, player_width) or \
+         black_market.check_collision(player_x, player_width) or \
          restaurant.check_collision(player_x, player_width) or \
          mission_center.check_collision(player_x, player_width)):
         wstack = get_world_interaction_stack()
